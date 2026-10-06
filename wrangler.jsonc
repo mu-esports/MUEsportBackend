@@ -52,8 +52,8 @@
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "mu-esport-staff-production",
-          "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+          "database_name": "mu-esport-backend-production",
+          "database_id": "bae930b3-d8a7-486e-90ad-c7f7497aba6e",
           "migrations_dir": "migrations"
         }
       ]

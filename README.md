@@ -189,7 +189,7 @@ screenshots/              ภาพจากชุดตรวจ UI (ข้อ�
 | --- | --- | --- | --- |
 | เครื่อง | — | D1 local ใน `.wrangler/` | `npm run dev` |
 | staging | `mu-esport-staff-staging` | `mu-esport-staff-staging` | `npm run build:staging` |
-| production | `mu-esport-staff` | `mu-esport-staff-production` | `npm run build:production` |
+| production | `mu-esport-staff` | `mu-esport-backend-production` | `npm run build:production` |
 
 > โครงการใช้ Cloudflare Vite plugin: environment ถูกเลือก **ตอน build** (สคริปต์ตั้ง `CLOUDFLARE_ENV` ให้) แล้ว `wrangler deploy` ใช้ค่าตั้งที่ build สร้างไว้ใน `dist/` จึง **ไม่ใส่ `--env` ตอน deploy**
 > ถ้า build ด้วย `npm run build` เฉย ๆ จะได้ค่าตั้งของเครื่อง (database ID ปลอม) ซึ่ง deploy ไม่ผ่าน เป็นการกันพลาดโดยตั้งใจ
@@ -201,12 +201,13 @@ screenshots/              ภาพจากชุดตรวจ UI (ข้อ�
 ```bash
 npx wrangler login
 
-# 1. สร้างฐานข้อมูล แล้วคัดลอก database_id ที่ได้
-npx wrangler d1 create mu-esport-staff-production
+# 1. สร้างฐานข้อมูลเฉพาะกรณีที่ยังไม่มี แล้วคัดลอก database_id ที่ได้
+# โครงการนี้สร้าง mu-esport-backend-production ผ่าน dashboard แล้ว จึงข้ามคำสั่งนี้
+npx wrangler d1 create mu-esport-backend-production
 ```
 
 2. แก้ `wrangler.jsonc` ส่วน `env.production`:
-   - `d1_databases[0].database_id` ← ค่าที่ได้จากขั้นก่อน (แทน `REPLACE_WITH_PRODUCTION_D1_DATABASE_ID`)
+   - `d1_databases[0].database_name` และ `database_id` ← ชื่อและ ID ของฐานข้อมูลจริง (production ของโครงการนี้ใส่ไว้แล้ว)
    - `vars.GOOGLE_CLIENT_ID` ← Client ID ของ production (แทน `REPLACE_WITH_PRODUCTION_GOOGLE_CLIENT_ID`)
 
 ```bash
