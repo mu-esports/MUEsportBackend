@@ -1,0 +1,62 @@
+/**
+ * การตั้งค่า Cloudflare Worker ของ MU Esport Staff
+ * - ส่วนบนสุดใช้กับการพัฒนาในเครื่อง (D1 local ใน .wrangler/) ไม่ผูกกับฐานข้อมูลจริง
+ * - env.staging / env.production ต้องใส่ database_id ของตัวเองก่อน deploy (ดู README)
+ * - ค่าลับ (GOOGLE_CLIENT_SECRET, TOKEN_ENCRYPTION_KEY) ไม่อยู่ในไฟล์นี้ ใช้ .dev.vars ในเครื่อง และ Worker Secrets บน Cloudflare
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mu-esport-staff",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
+  "observability": { "enabled": true },
+  "vars": {
+    "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
+    "GOOGLE_CLIENT_ID": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mu-esport-staff-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "mu-esport-staff-staging",
+      "vars": {
+        "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
+        "GOOGLE_CLIENT_ID": "REPLACE_WITH_STAGING_GOOGLE_CLIENT_ID"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "mu-esport-staff-staging",
+          "database_id": "REPLACE_WITH_STAGING_D1_DATABASE_ID",
+          "migrations_dir": "migrations"
+        }
+      ]
+    },
+    "production": {
+      "name": "mu-esport-staff",
+      "vars": {
+        "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
+        "GOOGLE_CLIENT_ID": "REPLACE_WITH_PRODUCTION_GOOGLE_CLIENT_ID"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "mu-esport-staff-production",
+          "database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
+  }
+}

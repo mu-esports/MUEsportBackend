@@ -1,0 +1,27 @@
+node_modules
+dist
+*.log
+
+# ค่าลับและค่าตั้งเฉพาะเครื่อง: ห้าม commit (เก็บไว้เฉพาะไฟล์ตัวอย่างที่ไม่มีค่าจริง)
+.env*
+!.env.example
+.dev.vars*
+!.dev.vars.example
+
+# Wrangler / D1 local และไฟล์ที่สร้างตอนรัน
+.wrangler/
+*.sqlite
+*.sqlite3
+*.db
+
+# token หรือ credentials ที่อาจถูกดาวน์โหลดมา
+client_secret*.json
+credentials*.json
+token*.json
+*.pem
+*.key
+
+# ภาพและผลจากชุดตรวจ UI: สร้างใหม่ได้ในเครื่อง ไม่รวมในการเผยแพร่ repository
+screenshots/
+screenshots-private/
+test-results/

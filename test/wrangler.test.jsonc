@@ -1,0 +1,10 @@
+// ค่าตั้งสำหรับชุดทดสอบ Worker เท่านั้น: ใช้ D1 จำลองในหน่วยความจำ ไม่มี static assets และไม่ผูกกับทรัพยากรจริง
+{
+  "name": "mu-esport-staff-test",
+  "main": "../worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "vars": { "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "test", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ]
+}

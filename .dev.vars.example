@@ -1,0 +1,12 @@
+# ค่าสำหรับพัฒนาในเครื่อง: คัดลอกไฟล์นี้เป็น .dev.vars แล้วใส่ค่าจริง (.dev.vars ถูก gitignore ห้าม commit)
+# บน Cloudflare ให้ตั้ง GOOGLE_CLIENT_SECRET และ TOKEN_ENCRYPTION_KEY เป็น Worker Secrets
+# ส่วน GOOGLE_CLIENT_ID ไม่ใช่ค่าลับ ตั้งใน wrangler.jsonc ของแต่ละ environment ได้
+
+# OAuth client แบบ Web application จาก Google Cloud Console
+# Authorized redirect URI สำหรับเครื่องนี้: http://localhost:5173/auth/google/callback
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# กุญแจ AES-256-GCM ยาว 32 ไบต์แบบ base64 ใช้เข้ารหัส token ของ Google ใน D1
+# สร้างด้วย: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+TOKEN_ENCRYPTION_KEY=

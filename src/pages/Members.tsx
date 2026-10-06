@@ -1,0 +1,319 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Pencil, Search, SearchX, UserPlus, Users } from 'lucide-react'
+import { Dialog } from '../components/Dialog'
+import { useToast } from '../components/Toast'
+import { DataBoundary, EmptyState, PageHeader, StatusBadge } from '../components/ui'
+import { hasCode, messageOf } from '../data/errors'
+import { useStore } from '../data/store'
+import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
+import type { Member, MemberRole, MemberStatus } from '../data/types'
+import { formatDate } from '../lib/datetime'
+import { MemberForm } from './MemberForm'
+import { SuspendConfirm } from './SuspendConfirm'
+
+type FormTarget = { mode: 'add' } | { mode: 'edit'; id: string }
+
+export function MembersPage() {
+  const { state, members, setMemberStatus, refresh } = useStore()
+  const toast = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<MemberStatus | ''>('')
+  const [role, setRole] = useState<MemberRole | ''>('')
+
+  const [detailId, setDetailId] = useState<string | null>(null)
+  const [form, setForm] = useState<FormTarget | null>(null)
+  const [suspendId, setSuspendId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  // แสดงในหน้ารายละเอียดที่เปิดอยู่ เพราะข้อความแจ้งผลนอก dialog จะถูกฉากมืดบัง
+  const [statusError, setStatusError] = useState('')
+
+  // ทางลัดจากหน้าภาพรวม: /members?new=1 เปิดฟอร์มเพิ่มสมาชิกทันที
+  useEffect(() => {
+    if (searchParams.get('new') !== '1' || state !== 'ready') return
+    setForm({ mode: 'add' })
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('new')
+        return next
+      },
+      { replace: true },
+    )
+  }, [searchParams, setSearchParams, state])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return members
+      .filter((m) => {
+        if (status && m.status !== status) return false
+        if (role && m.role !== role) return false
+        if (!q) return true
+        return [m.name, m.nickname, ROLE_LABELS[m.role]].some((text) => text.toLowerCase().includes(q))
+      })
+      .sort((a, b) => b.addedAt.localeCompare(a.addedAt) || a.name.localeCompare(b.name, 'th'))
+  }, [members, query, status, role])
+
+  const hasFilter = query.trim() !== '' || status !== '' || role !== ''
+  const clearFilters = () => {
+    setQuery('')
+    setStatus('')
+    setRole('')
+  }
+
+  const byId = (id: string | null) => members.find((m) => m.id === id)
+  const detail = byId(detailId)
+  const suspendTarget = byId(suspendId)
+  const editTarget = form?.mode === 'edit' ? byId(form.id) : undefined
+
+  const openDetail = (id: string | null) => {
+    setStatusError('')
+    setDetailId(id)
+  }
+
+  const changeStatus = async (member: Member, next: MemberStatus) => {
+    setBusy(true)
+    setStatusError('')
+    try {
+      await setMemberStatus(member.id, next, member.version)
+      // กลับไปที่รายการ เพื่อให้เห็นสถานะใหม่และข้อความแจ้งผล
+      setSuspendId(null)
+      setDetailId(null)
+      toast.success(
+        next === 'suspended' ? `พักการใช้งาน “${member.name}” แล้ว` : `เปิดใช้งาน “${member.name}” อีกครั้งแล้ว`,
+      )
+    } catch (error) {
+      setSuspendId(null)
+      const action = next === 'suspended' ? 'พักการใช้งาน' : 'เปิดใช้งานอีกครั้ง'
+      if (hasCode(error, 'version_conflict')) {
+        // โหลดค่าล่าสุดมาแสดงในหน้านี้ ให้ตรวจก่อนกดอีกครั้ง
+        refresh().catch(() => undefined)
+        setStatusError(`${action}ไม่สำเร็จ: ข้อมูลสมาชิกนี้ถูกแก้ไขจากที่อื่น ด้านล่างเป็นค่าล่าสุดแล้ว ตรวจแล้วกดปุ่มเดิมอีกครั้งถ้ายังต้องการ`)
+      } else {
+        setStatusError(`${action}ไม่สำเร็จ: ${messageOf(error, 'ระบบขัดข้อง')} สถานะยังเป็นค่าเดิม กดปุ่มเดิมเพื่อลองอีกครั้ง`)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="สมาชิก"
+        description="ค้นหา ดูรายละเอียด และจัดการรายชื่อสมาชิกของชมรม"
+        action={
+          <button type="button" className="button button-primary" onClick={() => setForm({ mode: 'add' })}>
+            <UserPlus aria-hidden="true" size={18} />
+            เพิ่มสมาชิก
+          </button>
+        }
+      />
+
+      <DataBoundary>
+        {members.length === 0 ? (
+          <section className="card">
+            <EmptyState
+              icon={Users}
+              title="ยังไม่มีสมาชิก"
+              action={
+                <button type="button" className="button button-primary" onClick={() => setForm({ mode: 'add' })}>
+                  เพิ่มสมาชิกคนแรก
+                </button>
+              }
+            >
+              เริ่มจากเพิ่มสมาชิกคนแรก แล้วรายชื่อจะแสดงที่นี่
+            </EmptyState>
+          </section>
+        ) : (
+          <section className="card" aria-label="รายชื่อสมาชิก">
+            <div className="toolbar" role="search">
+              <div className="search-field">
+                <Search aria-hidden="true" size={18} />
+                <label htmlFor="member-search" className="visually-hidden">
+                  ค้นหาสมาชิก
+                </label>
+                <input
+                  id="member-search"
+                  type="search"
+                  placeholder="ค้นหาชื่อ ชื่อเล่น หรือบทบาท"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <div className="toolbar-filter">
+                <label htmlFor="filter-status">สถานะ</label>
+                <select id="filter-status" value={status} onChange={(e) => setStatus(e.target.value as MemberStatus | '')}>
+                  <option value="">ทุกสถานะ</option>
+                  {STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="toolbar-filter">
+                <label htmlFor="filter-role">บทบาท</label>
+                <select id="filter-role" value={role} onChange={(e) => setRole(e.target.value as MemberRole | '')}>
+                  <option value="">ทุกบทบาท</option>
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button type="button" className="button" onClick={clearFilters} disabled={!hasFilter}>
+                ล้างตัวกรอง
+              </button>
+            </div>
+
+            <p className="result-count" role="status">
+              {hasFilter ? `พบ ${filtered.length} จาก ${members.length} คน` : `ทั้งหมด ${members.length} คน`}
+            </p>
+
+            {filtered.length === 0 ? (
+              <EmptyState
+                icon={SearchX}
+                title="ไม่พบสมาชิกที่ตรงกับเงื่อนไข"
+                action={
+                  <button type="button" className="button" onClick={clearFilters}>
+                    ล้างตัวกรอง
+                  </button>
+                }
+              >
+                ลองเปลี่ยนคำค้นหา หรือล้างตัวกรองเพื่อดูสมาชิกทั้งหมด
+              </EmptyState>
+            ) : (
+              <div className="table-wrap">
+                <table className="table members-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">ชื่อ / ชื่อเล่น</th>
+                      <th scope="col">บทบาท</th>
+                      <th scope="col">สถานะ</th>
+                      <th scope="col">วันที่เพิ่ม</th>
+                      <th scope="col">
+                        <span className="visually-hidden">การทำงาน</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((m) => (
+                      <tr key={m.id}>
+                        <th scope="row" className="cell-name">
+                          <span className="member-name">{m.name}</span>
+                          <span className="member-nickname">{m.nickname}</span>
+                        </th>
+                        <td data-label="บทบาท">{ROLE_LABELS[m.role]}</td>
+                        <td data-label="สถานะ">
+                          <StatusBadge status={m.status} />
+                        </td>
+                        <td data-label="วันที่เพิ่ม" className="cell-date">
+                          {formatDate(m.addedAt)}
+                        </td>
+                        <td className="cell-action">
+                          <button
+                            type="button"
+                            className="button button-small"
+                            onClick={() => openDetail(m.id)}
+                            aria-label={`ดูรายละเอียด ${m.name}`}
+                          >
+                            ดูรายละเอียด
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+      </DataBoundary>
+
+      {detail && !form && !suspendTarget && (
+        <Dialog
+          title={detail.name}
+          description={`ชื่อเล่น: ${detail.nickname}`}
+          onRequestClose={() => openDetail(null)}
+          footer={
+            <>
+              {detail.status === 'active' ? (
+                <button type="button" className="button button-danger-outline" onClick={() => setSuspendId(detail.id)}>
+                  พักการใช้งาน
+                </button>
+              ) : (
+                <button type="button" className="button" disabled={busy} onClick={() => changeStatus(detail, 'active')}>
+                  เปิดใช้งานอีกครั้ง
+                </button>
+              )}
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => setForm({ mode: 'edit', id: detail.id })}
+                data-autofocus
+              >
+                <Pencil aria-hidden="true" size={16} />
+                แก้ไข
+              </button>
+            </>
+          }
+        >
+          {statusError && (
+            <p className="form-alert detail-alert" role="alert">
+              {statusError}
+            </p>
+          )}
+          <dl className="detail-list">
+            <div>
+              <dt>บทบาท</dt>
+              <dd>{ROLE_LABELS[detail.role]}</dd>
+            </div>
+            <div>
+              <dt>สถานะ</dt>
+              <dd>
+                <StatusBadge status={detail.status} />
+              </dd>
+            </div>
+            <div>
+              <dt>วันที่เพิ่ม</dt>
+              <dd>{formatDate(detail.addedAt)}</dd>
+            </div>
+            <div>
+              <dt>ช่องทางติดต่อ</dt>
+              <dd>{detail.contact || <span className="muted">ไม่ได้ระบุ</span>}</dd>
+            </div>
+            <div className="detail-wide">
+              <dt>หมายเหตุ</dt>
+              <dd className="pre-line">{detail.note || <span className="muted">ไม่มีหมายเหตุ</span>}</dd>
+            </div>
+          </dl>
+        </Dialog>
+      )}
+
+      {suspendTarget && (
+        <SuspendConfirm
+          name={suspendTarget.name}
+          busy={busy}
+          onConfirm={() => changeStatus(suspendTarget, 'suspended')}
+          onCancel={() => setSuspendId(null)}
+        />
+      )}
+
+      {form && (form.mode === 'add' || editTarget) && (
+        <MemberForm
+          member={editTarget}
+          onClose={() => setForm(null)}
+          onSaved={(message) => {
+            setForm(null)
+            setDetailId(null)
+            toast.success(message)
+          }}
+        />
+      )}
+    </>
+  )
+}

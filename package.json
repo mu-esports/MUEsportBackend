@@ -1,0 +1,42 @@
+{
+  "name": "mu-esport-staff",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:demo": "vite --mode demo",
+    "build": "npm run typecheck && vite build",
+    "build:staging": "npm run typecheck && node scripts/build-env.mjs staging",
+    "build:production": "npm run typecheck && node scripts/build-env.mjs production",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p worker && tsc --noEmit -p test",
+    "test": "vitest run",
+    "types": "wrangler types worker/worker-configuration.d.ts --include-env=false",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "check:dry-run": "wrangler deploy --dry-run",
+    "check:ui": "node scripts/ui-check.mjs",
+    "check:ui:live": "node scripts/ui-check-live.mjs"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-sans-thai": "^5.3.0",
+    "jose": "^6.2.12",
+    "lucide-react": "^1.51.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.62.5",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "playwright-core": "^1.63.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.147.0"
+  }
+}

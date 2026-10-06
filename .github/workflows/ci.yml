@@ -1,0 +1,31 @@
+# ตรวจทุก push และ pull request: type, ชุดทดสอบ Worker (D1 local + Google จำลอง), build และ dry-run ของ Wrangler
+# ไม่ใช้ secret ใด ๆ และไม่ deploy: การ deploy ทำผ่าน Workers Builds หรือคำสั่ง Wrangler ตาม README เท่านั้น
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Typecheck (frontend, config, Worker, tests)
+        run: npm run typecheck
+      - name: Worker tests (Workers runtime, D1 local, mocked Google)
+        run: npm test
+      - name: Build
+        run: npx vite build
+      - name: Wrangler dry-run (ตรวจ bundle และ binding โดยไม่ deploy)
+        run: npx wrangler deploy --dry-run
