@@ -44,10 +44,10 @@
       ]
     },
     "production": {
-      "name": "mu-esport-staff",
+      "name": "muesportbackend",
       "vars": {
         "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
-        "GOOGLE_CLIENT_ID": "REPLACE_WITH_PRODUCTION_GOOGLE_CLIENT_ID"
+        "GOOGLE_CLIENT_ID": "989576232237-3c083cakvsrl2ktrqqvacqsj2c000rgi.apps.googleusercontent.com"
       },
       "d1_databases": [
         {

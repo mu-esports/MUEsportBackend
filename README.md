@@ -189,7 +189,9 @@ screenshots/              ภาพจากชุดตรวจ UI (ข้อ�
 | --- | --- | --- | --- |
 | เครื่อง | — | D1 local ใน `.wrangler/` | `npm run dev` |
 | staging | `mu-esport-staff-staging` | `mu-esport-staff-staging` | `npm run build:staging` |
-| production | `mu-esport-staff` | `mu-esport-backend-production` | `npm run build:production` |
+| production | `muesportbackend` | `mu-esport-backend-production` | `npm run build:production` |
+
+URL production: `https://muesportbackend.muesport2567.workers.dev` และ Google OAuth callback: `https://muesportbackend.muesport2567.workers.dev/auth/google/callback`
 
 > โครงการใช้ Cloudflare Vite plugin: environment ถูกเลือก **ตอน build** (สคริปต์ตั้ง `CLOUDFLARE_ENV` ให้) แล้ว `wrangler deploy` ใช้ค่าตั้งที่ build สร้างไว้ใน `dist/` จึง **ไม่ใส่ `--env` ตอน deploy**
 > ถ้า build ด้วย `npm run build` เฉย ๆ จะได้ค่าตั้งของเครื่อง (database ID ปลอม) ซึ่ง deploy ไม่ผ่าน เป็นการกันพลาดโดยตั้งใจ
@@ -223,6 +225,8 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET --env production
 npx wrangler secret put TOKEN_ENCRYPTION_KEY --env production
 ```
 
+หากเตรียมค่าลับทั้งสองไว้ใน `.dev.vars.production` บนเครื่องแล้ว สามารถนำขึ้น Worker พร้อมกันแทนคำสั่ง `secret put` ได้ด้วย `npx wrangler secret bulk .dev.vars.production --env production` ไฟล์นี้ต้องมีเฉพาะ `GOOGLE_CLIENT_SECRET` และ `TOKEN_ENCRYPTION_KEY` และไม่อยู่ใน Git อย่าเปลี่ยนกุญแจที่ใช้อยู่แล้ว เพราะ token เดิมจะถอดรหัสไม่ได้
+
 6. เพิ่ม redirect URI ของโดเมนจริงใน Google Cloud (หัวข้อก่อนหน้า)
 7. เปิดเว็บ → เข้าสู่ระบบด้วย `muesport2567@gmail.com` → หน้า “แหล่งข้อมูล” → “เชื่อมบัญชี Google ของชมรม” → หน้า “ทีมงาน” เพิ่มอีเมลทีมงาน
 
@@ -230,7 +234,7 @@ npx wrangler secret put TOKEN_ENCRYPTION_KEY --env production
 
 ที่ Cloudflare dashboard → Workers & Pages → เลือก Worker → Settings → Builds → Connect repository แล้วตั้งค่า:
 
-| ช่อง | Worker `mu-esport-staff` (production) | Worker `mu-esport-staff-staging` |
+| ช่อง | Worker `muesportbackend` (production) | Worker `mu-esport-staff-staging` |
 | --- | --- | --- |
 | Production branch | `main` | `staging` (หรือ branch ที่ใช้ทดสอบ) |
 | Build command | `npm run build:production` | `npm run build:staging` |
