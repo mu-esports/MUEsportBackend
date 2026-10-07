@@ -12,12 +12,20 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/auth/*"]
+    "run_worker_first": [
+      "/api/*",
+      "/auth/*"
+    ]
   },
-  "observability": { "enabled": true },
+  "observability": {
+    "enabled": true
+  },
   "vars": {
     "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
-    "GOOGLE_CLIENT_ID": ""
+    "GOOGLE_CLIENT_ID": "",
+    // Google Picker (เลือกไฟล์เดิมจากหน้าเว็บ): API key ของเบราว์เซอร์และเลขโครงการ Google Cloud ไม่ใช่ค่าลับ เว้นว่าง = ยังเลือกไฟล์เดิมไม่ได้ (ดู README)
+    "GOOGLE_PICKER_API_KEY": "AIzaSyBM0aU1cZlusCpOtCT7XvOgiA87sBnMu0Q",
+    "GOOGLE_CLOUD_PROJECT_NUMBER": "989576232237"
   },
   "d1_databases": [
     {
@@ -32,7 +40,15 @@
       "name": "mu-esport-staff-staging",
       "vars": {
         "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
-        "GOOGLE_CLIENT_ID": "REPLACE_WITH_STAGING_GOOGLE_CLIENT_ID"
+        "GOOGLE_CLIENT_ID": "REPLACE_WITH_STAGING_GOOGLE_CLIENT_ID",
+        "GOOGLE_PICKER_API_KEY": "",
+        "GOOGLE_CLOUD_PROJECT_NUMBER": ""
+      },
+      // Cron ของ staging แยกจาก production: อัปเดตสำเนาจาก Google ทุก 15 นาที
+      "triggers": {
+        "crons": [
+          "*/15 * * * *"
+        ]
       },
       "d1_databases": [
         {
@@ -47,7 +63,17 @@
       "name": "muesportbackend",
       "vars": {
         "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
-        "GOOGLE_CLIENT_ID": "989576232237-3c083cakvsrl2ktrqqvacqsj2c000rgi.apps.googleusercontent.com"
+        "GOOGLE_CLIENT_ID": "989576232237-3c083cakvsrl2ktrqqvacqsj2c000rgi.apps.googleusercontent.com",
+        // ใส่ API key ของ Picker หลังสร้างใน Google Cloud (ดู README หัวข้อ Google Picker)
+        "GOOGLE_PICKER_API_KEY": "AIzaSyBM0aU1cZlusCpOtCT7XvOgiA87sBnMu0Q",
+        // เลขโครงการ = ส่วนหน้าของ OAuth client ID
+        "GOOGLE_CLOUD_PROJECT_NUMBER": "989576232237"
+      },
+      // อัปเดตสำเนาจาก Google ทุก 5 นาทีแม้ไม่มีใครเปิดเว็บ (ขณะมีคนเปิดหน้า หน้าเว็บตรวจเองทุกประมาณ 60 วินาที)
+      "triggers": {
+        "crons": [
+          "*/5 * * * *"
+        ]
       },
       "d1_databases": [
         {

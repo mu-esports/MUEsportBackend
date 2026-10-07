@@ -16,6 +16,7 @@ import { GOOGLE_STATUS_LABELS, resourceStatusLabel, useSourcesStatus } from '../
 import type { GoogleStatus, ResourceId, SourcesStatus } from '../data/sourcesStatus'
 import { formatTimestamp } from '../lib/datetime'
 import { IS_DEMO } from '../mode'
+import { DataSpace } from './SourcesSetup'
 
 const ICONS: Record<ResourceId, LucideIcon> = {
   docs: FileText,
@@ -125,22 +126,15 @@ const LIVE_SOURCES: LiveSource[] = [
     id: 'docs',
     name: 'Google Docs',
     kind: 'เอกสารของชมรม',
-    summary: 'สร้างและแก้เอกสารข้อความจากหน้า “เอกสาร” เนื้อหาเก็บเป็นไฟล์ Google Docs ในบัญชีของชมรม',
+    summary: 'สร้างและแก้เอกสารข้อความจากหน้า “เอกสาร” เนื้อหาเก็บเป็นไฟล์ Google Docs ในบัญชีของชมรม เว็บตรวจฉบับใหม่ระหว่างเปิดเอกสารและตามการเปลี่ยนชื่อใน Google',
     setup: [
       { label: 'บัญชีที่ใช้', detail: 'ไฟล์ถูกสร้างใน Google Drive ของบัญชีชมรมที่เชื่อมไว้ด้านบน' },
-      { label: 'ขอบเขตสิทธิ์', detail: 'เว็บไซต์เข้าถึงได้เฉพาะไฟล์ที่สร้างผ่านเว็บไซต์นี้ (สิทธิ์ drive.file) ไม่เห็นไฟล์อื่นใน Drive' },
+      { label: 'ขอบเขตสิทธิ์', detail: 'เว็บไซต์เข้าถึงได้เฉพาะไฟล์ที่สร้างผ่านเว็บไซต์นี้ และไฟล์เดิมที่ผู้ดูแลเลือกผ่านหน้าต่างเลือกไฟล์ของ Google (สิทธิ์ drive.file) ไม่เห็นไฟล์อื่นใน Drive' },
       { label: 'การแชร์', detail: 'เว็บไซต์ไม่เปลี่ยนการแชร์ของไฟล์ ทีมงานแก้ผ่านเว็บได้ตามสิทธิ์ในเว็บ ส่วนการเปิดใน Google Docs โดยตรงต้องมีสิทธิ์ใน Google ของตัวเอง' },
     ],
-    note: 'ใช้ได้เมื่อเชื่อมบัญชี Google ของชมรมแล้ว รองรับเอกสารข้อความพื้นฐานที่สร้างจากเว็บไซต์นี้',
+    note: 'ใช้ได้เมื่อเชื่อมบัญชี Google ของชมรมแล้ว แก้ในเว็บได้เฉพาะเอกสารข้อความพื้นฐาน เอกสารที่มีตาราง รูป รายการ หรือหลายแท็บเปิดอ่านได้อย่างเดียวและให้แก้ใน Google Docs',
   },
-  fromPlanned('sheets', 'ยังไม่ได้เลือกชีตที่จะใช้ รอบนี้ยังไม่มีการอ่านหรือเขียน Google Sheets และยังไม่ขอสิทธิ์ Sheets จาก Google'),
-  fromPlanned(
-    'calendar',
-    'ยังไม่ได้เลือกปฏิทินที่จะใช้ หน้าปฏิทินแสดงเฉพาะกำหนดการในระบบ ยังไม่มีการอ่านหรือเขียน Google Calendar และยังไม่ขอสิทธิ์ Calendar จาก Google',
-    'จะใช้เป็นแหล่งกำหนดการของชมรมในรอบถัดไป ตอนนี้หน้าปฏิทินใช้กำหนดการในระบบเท่านั้น',
-  ),
-  fromPlanned('forms', 'ฟีเจอร์นี้ยังไม่เปิดใช้งาน ยังไม่มีการเชื่อมต่อ ส่ง หรือรับข้อมูลใด ๆ'),
-  fromPlanned('excel', 'ฟีเจอร์นี้ยังไม่เปิดใช้งาน ยังไม่มีการเชื่อมต่อ ส่ง หรือรับข้อมูลใด ๆ'),
+  fromPlanned('excel', 'Excel อยู่นอกงานซิงค์กับ Google ยังไม่เปิดใช้งาน ยังไม่มีการเชื่อมต่อ ส่ง หรือรับข้อมูลใด ๆ'),
 ]
 
 const CALLBACK_MESSAGES: Record<string, { ok: boolean; text: string }> = {
@@ -187,13 +181,14 @@ function LiveSourcesPage() {
     )
   }, [params, setParams])
 
-  const run = async (kind: 'connect' | 'check' | 'disconnect') => {
+  const run = async (kind: 'connect' | 'check' | 'disconnect', service?: 'calendar_created' | 'calendar_existing') => {
     setBusy(kind)
     setActionError('')
     setResult(null)
     try {
       if (kind === 'connect') {
-        const { authUrl } = await api<{ authUrl: string }>('/api/google/connect', { method: 'POST' })
+        // service = ขอสิทธิ์ของบริการเพิ่ม (Google แสดงหน้าขออนุญาตให้ตรวจ และคงสิทธิ์เดิมที่ให้ไว้)
+        const { authUrl } = await api<{ authUrl: string }>('/api/google/connect', { method: 'POST', body: service ? { service } : undefined })
         window.location.assign(authUrl)
         return
       }
@@ -321,6 +316,8 @@ function LiveSourcesPage() {
             )}
           </section>
 
+          <DataSpace google={google} isAdmin={isAdmin} onRequestScope={(service) => run('connect', service)} scopeBusy={busy !== null} />
+
           <ul className="source-grid">
             {LIVE_SOURCES.map((s) => {
               const status = statusOf(s.id)
@@ -352,8 +349,8 @@ function LiveSourcesPage() {
           onCancel={() => setConfirmDisconnect(false)}
         >
           <ul>
-            <li>เว็บไซต์จะสร้าง เปิด และแก้เอกสารไม่ได้จนกว่าผู้ดูแลจะเชื่อมใหม่</li>
-            <li>ไฟล์ใน Google Docs ของชมรมไม่ถูกลบ และรายการเอกสาร สมาชิก กำหนดการในเว็บยังอยู่ครบ</li>
+            <li>เว็บไซต์จะสร้าง เปิด และแก้เอกสารไม่ได้ และจะหยุดซิงค์กับ Google Sheets, Calendar และ Forms จนกว่าผู้ดูแลจะเชื่อมใหม่</li>
+            <li>ไฟล์ ปฏิทิน และฟอร์มใน Google ของชมรมไม่ถูกลบ รายการเอกสาร สมาชิก กำหนดการในเว็บยังอยู่ครบ (แสดงค่าที่อัปเดตสำเร็จล่าสุด)</li>
             <li>ทีมงานยังเข้าสู่ระบบและใช้ส่วนอื่นได้ตามปกติ</li>
           </ul>
         </ConfirmDialog>
@@ -415,7 +412,7 @@ function ConnectionExplanation({ google, isAdmin }: { google: SourcesStatus['goo
     return (
       <p className="notice notice-warning" role="alert">
         <TriangleAlert aria-hidden="true" size={18} />
-        Google ไม่รับสิทธิ์ที่เก็บไว้แล้ว (ถูกถอนสิทธิ์หรือหมดอายุ) เอกสารจะเปิดและแก้ไม่ได้จนกว่าผู้ดูแลจะกด “เชื่อมใหม่” ด้วยบัญชีชมรม
+        Google ไม่รับสิทธิ์ที่เก็บไว้แล้ว (ถูกถอนสิทธิ์หรือหมดอายุ) เอกสารจะเปิดและแก้ไม่ได้ และการซิงค์กับ Google หยุดอยู่ (หน้าเว็บแสดงข้อมูลที่อัปเดตสำเร็จล่าสุด) จนกว่าผู้ดูแลจะกด “เชื่อมใหม่” ด้วยบัญชีชมรม
       </p>
     )
   }
@@ -428,10 +425,18 @@ function ConnectionExplanation({ google, isAdmin }: { google: SourcesStatus['goo
     )
   }
   return (
-    <p className="notice">
+    <div className="notice">
       <Info aria-hidden="true" size={18} />
-      การออกจากระบบของทีมงานไม่กระทบการเชื่อมนี้ เว็บไซต์เข้าถึงได้เฉพาะไฟล์ที่สร้างผ่านเว็บไซต์นี้
-    </p>
+      <div>
+        <p>การออกจากระบบของทีมงานไม่กระทบการเชื่อมนี้ เว็บไซต์เข้าถึงได้เฉพาะไฟล์ที่สร้างผ่านเว็บไซต์นี้หรือที่ผู้ดูแลเลือกไว้ และปฏิทินตามสิทธิ์ที่อนุญาต</p>
+        {isAdmin && (
+          <p>
+            ถ้าหน้าจอขออนุญาตของ Google (OAuth consent screen) ยังอยู่ในสถานะ Testing Google จะยกเลิกการอนุญาตเองภายในประมาณ 7 วัน การซิงค์จะหยุดและต้องกด “เชื่อมใหม่”
+            จนกว่าจะเปลี่ยนสถานะการเผยแพร่ (ดู README)
+          </p>
+        )}
+      </div>
+    </div>
   )
 }
 

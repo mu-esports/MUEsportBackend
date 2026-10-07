@@ -9,6 +9,7 @@ import { Field, PageHeader } from '../components/ui'
 import { documentsApi, MAX_CONTENT_UNITS, MAX_TITLE_LENGTH, normalizeText } from '../data/documents'
 import type { DocumentContent, DocumentInfo } from '../data/documents'
 import { AppError, messageOf } from '../data/errors'
+import { AUTO_SYNC_MS } from '../data/sync'
 import { formatTimestamp } from '../lib/datetime'
 
 interface Base {
@@ -61,6 +62,18 @@ function Editor({ id }: { id?: string }) {
   // การนำทางและการปิดหน้าอ่านค่าล่าสุดผ่าน ref
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
+  const baseRef = useRef(base)
+  baseRef.current = base
+  const savingRef = useRef(saving)
+  savingRef.current = saving
+
+  // ฉบับใหม่ใน Google ที่ตรวจพบระหว่างเปิดหน้านี้ ขณะมีร่างที่ยังไม่บันทึก (ไม่โหลดทับร่าง)
+  const [remoteRevision, setRemoteRevision] = useState<string | null>(null)
+  // revision ที่ผู้ใช้เลือกเก็บร่างไว้ก่อน: ไม่เตือนซ้ำจนกว่า Google จะมีฉบับใหม่กว่านั้น
+  const keptRevision = useRef<string | null>(null)
+  const [checkedAt, setCheckedAt] = useState<string | null>(null)
+  const [autoLoadedAt, setAutoLoadedAt] = useState<string | null>(null)
+  const [comparing, setComparing] = useState(false)
   const allowLeave = useRef(false)
 
   const applyLoaded = useCallback((document: DocumentInfo, content: DocumentContent) => {
@@ -98,6 +111,68 @@ function Editor({ id }: { id?: string }) {
   }, [id, applyLoaded])
 
   useEffect(fetchDocument, [fetchDocument])
+
+  // ตรวจเป็นระยะว่า Google Docs มีฉบับใหม่หรือไม่ (ตรวจเฉพาะ revision ไม่ดึงเนื้อหา)
+  // ไม่มีร่างค้าง → โหลดฉบับใหม่ให้เอง; มีร่างค้าง → แจ้งและให้ผู้ใช้เลือก ไม่ทับสิ่งที่พิมพ์
+  const ready = load.kind === 'ready'
+  useEffect(() => {
+    if (!id || !ready) return
+    let stopped = false
+    const check = async () => {
+      if (document.visibilityState !== 'visible' || savingRef.current || !baseRef.current) return
+      try {
+        const latest = await documentsApi.revision(id)
+        if (stopped || savingRef.current) return
+        setCheckedAt(new Date().toISOString())
+        if (latest.revisionId === baseRef.current?.revisionId) {
+          setRemoteRevision(null)
+          return
+        }
+        if (dirtyRef.current) {
+          if (keptRevision.current !== latest.revisionId) setRemoteRevision(latest.revisionId)
+          return
+        }
+        const fresh = await documentsApi.read(id)
+        // ระหว่างรอ ผู้ใช้อาจเริ่มพิมพ์แล้ว: ไม่ทับ
+        if (stopped || dirtyRef.current || savingRef.current) return
+        applyLoaded(fresh.document, fresh.content)
+        setRemoteRevision(null)
+        setAutoLoadedAt(new Date().toISOString())
+      } catch {
+        // ตรวจไม่ได้รอบนี้ (เช่น เครือข่ายหลุด): ไม่รบกวนงานที่พิมพ์อยู่ การบันทึกยังให้ Google ตรวจ revision เสมอ
+      }
+    }
+    const timer = setInterval(check, AUTO_SYNC_MS)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [id, ready, applyLoaded])
+
+  /** ดึงฉบับล่าสุดมาเทียบกับร่าง (ร่างยังอยู่ในช่องเนื้อหา) */
+  const compareLatest = async (thenConfirmLoad = false) => {
+    if (!id) return
+    setComparing(true)
+    try {
+      const { document: doc, content } = await documentsApi.read(id)
+      setInfo(doc)
+      setRemoteRevision(null)
+      if (content.text === normalizeText(text)) {
+        // ฉบับใน Google ตรงกับที่พิมพ์อยู่แล้ว
+        setBase({ title: doc.title, text: content.text, revisionId: content.revisionId })
+        setTitle(doc.title)
+      } else {
+        setConflict({ ...content, title: doc.title })
+        if (thenConfirmLoad) setConfirmLatest(true)
+      }
+    } catch (failure) {
+      setSaveError(`${messageOf(failure, 'โหลดฉบับล่าสุดไม่สำเร็จ')} สิ่งที่พิมพ์ไว้ยังอยู่ครบในหน้านี้`)
+    } finally {
+      setComparing(false)
+    }
+  }
 
   // เตือนก่อนปิดหรือโหลดหน้าใหม่เมื่อมีการแก้ที่ยังไม่บันทึก
   useEffect(() => {
@@ -303,7 +378,9 @@ function Editor({ id }: { id?: string }) {
         ? { icon: Info, text: isNew ? 'ยังไม่ได้สร้าง' : 'มีการแก้ไขที่ยังไม่ได้บันทึก', tone: 'warning', spin: false }
         : savedAt
           ? { icon: CircleCheck, text: `บันทึกแล้วเมื่อ ${formatTimestamp(savedAt)} (Google ยืนยัน)`, tone: 'success', spin: false }
-          : { icon: CircleCheck, text: isNew ? 'ยังไม่ได้กรอก' : 'ตรงกับฉบับใน Google Docs ที่โหลดมา', tone: 'muted', spin: false }
+          : autoLoadedAt
+            ? { icon: CircleCheck, text: `โหลดฉบับใหม่จาก Google Docs ให้แล้วเมื่อ ${formatTimestamp(autoLoadedAt)}`, tone: 'success', spin: false }
+            : { icon: CircleCheck, text: isNew ? 'ยังไม่ได้กรอก' : `ตรงกับฉบับใน Google Docs ที่โหลดมา${checkedAt ? ` (ตรวจล่าสุด ${formatTimestamp(checkedAt)})` : ''}`, tone: 'muted', spin: false }
   const StatusIcon = status.icon
 
   return (
@@ -331,6 +408,35 @@ function Editor({ id }: { id?: string }) {
             )}
           </div>
         </div>
+      )}
+
+      {remoteRevision && dirty && !conflict && (
+        <section className="card conflict-card remote-card" role="alert" aria-labelledby="remote-title">
+          <h2 id="remote-title">
+            <Info aria-hidden="true" size={20} />
+            มีฉบับใหม่ใน Google Docs
+          </h2>
+          <p>เอกสารนี้ถูกแก้จากที่อื่นระหว่างที่คุณพิมพ์ ระบบยังไม่ได้โหลดฉบับใหม่มาทับ สิ่งที่คุณพิมพ์อยู่ครบในช่องเนื้อหา</p>
+          <div className="button-row">
+            <button type="button" className="button button-primary" onClick={() => compareLatest()} disabled={comparing}>
+              {comparing ? 'กำลังโหลด…' : 'เปรียบเทียบกับฉบับล่าสุด'}
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                keptRevision.current = remoteRevision
+                setRemoteRevision(null)
+              }}
+            >
+              เก็บร่างของฉันไว้ก่อน
+            </button>
+            <button type="button" className="button" onClick={() => compareLatest(true)} disabled={comparing}>
+              โหลดฉบับล่าสุด
+            </button>
+          </div>
+          <p className="field-hint">ถ้าเก็บร่างไว้ก่อน ตอนกดบันทึก Google จะปฏิเสธการเขียนทับ และระบบจะให้เทียบกับฉบับล่าสุดอีกครั้ง</p>
+        </section>
       )}
 
       {conflict && (

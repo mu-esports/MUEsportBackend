@@ -12,6 +12,7 @@ export const ORIGIN = 'https://staff.example.test'
 export const CLUB_EMAIL = 'muesport2567@gmail.com'
 
 const TABLES = [
+  'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',
   'idempotency_keys', 'events', 'members', 'oauth_states', 'sessions', 'users',
 ]
@@ -93,6 +94,7 @@ interface FakeDoc {
   appProperties: Record<string, string>
   /** โครงสร้างเพิ่มที่ editor ไม่รองรับ ใช้ทดสอบ */
   rich?: 'table' | 'image' | 'tabs' | 'header' | 'heading' | 'bold' | 'suggestion' | 'list'
+  trashed?: boolean
 }
 
 interface Identity {
@@ -121,6 +123,8 @@ export class FakeGoogle {
   refreshTokens = new Map<string, 'valid' | 'invalid_grant'>()
   calls: { method: string; url: string }[] = []
   interceptors: Interceptor[] = []
+  /** บริการจำลองเพิ่มเติม (Sheets/Calendar/Forms) ตอบหลังผ่านการตรวจ token แล้ว */
+  services: ((url: URL, method: string, init: RequestInit | undefined) => Response | undefined)[] = []
   private keys!: { privateKey: CryptoKey; jwk: Record<string, unknown> }
   private counter = 0
 
@@ -162,6 +166,13 @@ export class FakeGoogle {
     return doc
   }
 
+  /** จำลองการเปลี่ยนชื่อไฟล์จากฝั่ง Google */
+  renameExternally(id: string, title: string) {
+    const doc = this.docs.get(id)!
+    doc.title = title
+    doc.revision++
+  }
+
   /** จำลองการแก้จากฝั่ง Google Docs โดยตรง */
   editExternally(id: string, text: string) {
     const doc = this.docs.get(id)!
@@ -185,6 +196,10 @@ export class FakeGoogle {
     const auth = new Headers(init?.headers).get('Authorization') ?? ''
     if (!auth.startsWith('Bearer access-')) return jsonResponse({ error: { code: 401 } }, 401)
 
+    for (const service of this.services) {
+      const response = service(url, method, init)
+      if (response) return response
+    }
     if (url.origin === 'https://www.googleapis.com' && url.pathname.startsWith('/drive/v3/files')) return this.drive(url, method, init)
     if (url.origin === 'https://docs.googleapis.com') return this.docsApi(url, method, init)
     return jsonResponse({ error: 'unknown endpoint' }, 404)
@@ -225,6 +240,9 @@ export class FakeGoogle {
     }
     const doc = this.docs.get(id)
     if (!doc) return jsonResponse({ error: { code: 404 } }, 404)
+    if (method === 'GET') {
+      return jsonResponse({ id: doc.id, name: doc.title, mimeType: 'application/vnd.google-apps.document', trashed: doc.trashed === true, capabilities: { canEdit: true } })
+    }
     if (method === 'PATCH') {
       doc.title = (JSON.parse(init?.body as string) as { name: string }).name
       doc.revision++
@@ -239,6 +257,8 @@ export class FakeGoogle {
     const doc = this.docs.get(id)
     if (!doc) return jsonResponse({ error: { code: 404 } }, 404)
     if (method === 'GET') {
+      // การตรวจ revision แบบเบาขอเฉพาะ revisionId,title ไม่ดึงเนื้อหา
+      if (url.searchParams.get('fields') === 'revisionId,title') return jsonResponse({ revisionId: `rev-${doc.revision}`, title: doc.title })
       if (url.searchParams.get('includeTabsContent') !== 'true') return jsonResponse({ error: 'test requires includeTabsContent' }, 400)
       return jsonResponse(toDocsJson(doc))
     }

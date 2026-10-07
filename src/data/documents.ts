@@ -18,6 +18,8 @@ export interface DocumentInfo {
   lastCheckedAt: string | null
   createdByName: string
   updatedByName: string
+  /** created = สร้างผ่านเว็บ, selected = ไฟล์เดิมที่ผู้ดูแลเลือกมาผูก */
+  origin?: 'created' | 'selected'
 }
 
 /** เนื้อหาที่อ่านจาก Google Docs ณ revision หนึ่ง */
@@ -68,6 +70,10 @@ export const documentsApi = {
       method: 'PUT',
       body: input,
     }),
+  /** ตรวจแบบเบาว่า Google มีฉบับใหม่หรือไม่ (ไม่ดึงเนื้อหา) */
+  revision: (id: string) => api<{ revisionId: string; title: string }>(`/api/documents/${encodeURIComponent(id)}/revision`),
+  /** ผูกเอกสารเดิมที่ผู้ดูแลเลือกผ่าน Google Picker */
+  link: (fileId: string) => api<{ document: DocumentInfo }>('/api/documents/link', { method: 'POST', body: { fileId } }),
   operations: async () => (await api<{ operations: PendingOperation[] }>('/api/documents/operations')).operations,
   resume: (id: string, confirmCreate = false) =>
     api<{ document: DocumentInfo }>(`/api/documents/operations/${encodeURIComponent(id)}/resume`, { method: 'POST', body: { confirmCreate } }),

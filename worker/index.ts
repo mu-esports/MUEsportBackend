@@ -2,11 +2,14 @@ import { handleAuth, startConnect } from './auth'
 import { handleDocuments } from './documents'
 import type { AppEnv, Ctx } from './env'
 import { handleEvents } from './events'
+import { handleForms } from './gforms'
 import { isAuthConfigured } from './google'
 import { errorResponse, HttpError, json, redirect } from './http'
 import { handleMembers } from './members'
 import { loadSession } from './session'
+import { handleSetup, handleSync } from './setup'
 import { handleSources } from './sources'
+import { runScheduled } from './sync'
 import { handleUsers } from './users'
 
 async function handleApi(ctx: Ctx): Promise<Response> {
@@ -26,6 +29,9 @@ async function handleApi(ctx: Ctx): Promise<Response> {
   else if (resource === 'events') response = await handleEvents(ctx, rest)
   else if (resource === 'users') response = await handleUsers(ctx, rest)
   else if (resource === 'documents') response = await handleDocuments(ctx, rest)
+  else if (resource === 'forms') response = await handleForms(ctx, rest)
+  else if (resource === 'sync') response = await handleSync(ctx, rest)
+  else if (resource === 'setup') response = await handleSetup(ctx, rest)
   else if (resource === 'google' && rest[0] === 'connect' && rest.length === 1 && ctx.request.method === 'POST') response = await startConnect(ctx)
   else if (resource === 'sources' || resource === 'google') response = await handleSources(ctx, parts)
 
@@ -54,5 +60,9 @@ export default {
       console.error('unhandled error', request.method, url.pathname, error instanceof Error ? error.name : 'unknown')
       return errorResponse(new HttpError(500, 'internal_error', 'ระบบขัดข้อง ลองอีกครั้งในอีกสักครู่'))
     }
+  },
+  // Cron (ตั้งแยกต่อ environment ใน wrangler.jsonc): อัปเดตสำเนาแม้ไม่มีใครเปิดเว็บ ทำทีละชุดจำกัด และใช้ lease เดียวกับคำขอจากหน้าเว็บจึงไม่ทำงานซ้อน
+  async scheduled(_controller, env, ctx): Promise<void> {
+    ctx.waitUntil(runScheduled(env).then(() => undefined))
   },
 } satisfies ExportedHandler<AppEnv>

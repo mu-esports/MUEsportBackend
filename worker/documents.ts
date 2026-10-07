@@ -5,6 +5,8 @@ import type { AppEnv, Ctx, Session } from './env'
 import { getAccessToken, googleFetch } from './google'
 import { HttpError, json, readJson } from './http'
 import { audit, requireMutation, requireUser } from './session'
+import { checkFile } from './setup'
+import { batchAll, bumpDataVersion, GoogleApiError, makeGapi, registerSyncer, toHttpError } from './sync'
 import { hashPayload, idempotencyKey, invalid } from './validation'
 
 const DOCS_API = 'https://docs.googleapis.com/v1/documents'
@@ -23,6 +25,7 @@ interface DocumentRow {
   created_at: string
   updated_at: string
   last_checked_at: string | null
+  origin?: string
   created_by_name?: string | null
   updated_by_name?: string | null
 }
@@ -36,6 +39,8 @@ const toDocument = (row: DocumentRow) => ({
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   lastCheckedAt: row.last_checked_at,
+  // created = สร้างผ่านเว็บ, selected = ไฟล์เดิมที่ผู้ดูแลเลือกมาผูก
+  origin: row.origin ?? 'created',
   createdByName: row.created_by_name ?? '',
   updatedByName: row.updated_by_name ?? '',
 })
@@ -182,6 +187,84 @@ async function read(ctx: Ctx, id: string): Promise<Response> {
   const parsed = await loadFromGoogle(ctx.env, row)
   return json({ document: toDocument((await getDocument(ctx.env, id))!), content: toContent(parsed) })
 }
+
+/**
+ * ตรวจแบบเบา (ไม่ดึงเนื้อหา) ว่าเอกสารใน Google เป็น revision ใดแล้ว หน้าแก้เอกสารเรียกเป็นระยะขณะเปิดอยู่
+ * เพื่อบอกว่ามีฉบับใหม่ โดยไม่แตะร่างที่ผู้ใช้กำลังพิมพ์
+ */
+async function revision(ctx: Ctx, id: string): Promise<Response> {
+  requireUser(ctx)
+  const row = await requireDocument(ctx.env, id)
+  const response = await googleFetch(ctx.env, `${DOCS_API}/${encodeURIComponent(row.google_document_id)}?fields=revisionId,title`)
+  if (response.status === 404 || response.status === 403) {
+    await recordCheck(ctx.env, row.id, null)
+    throw unavailable()
+  }
+  if (!response.ok) throw googleFailed(response.status)
+  const data = (await response.json()) as { revisionId?: string; title?: string }
+  if (typeof data.revisionId !== 'string') throw googleFailed(502)
+  if (typeof data.title === 'string' && data.title && data.title !== row.title) {
+    await ctx.env.DB.prepare('UPDATE documents SET title = ?, last_checked_at = ? WHERE id = ?').bind(data.title, nowIso(), id).run()
+    await bumpDataVersion(ctx.env, 'docs')
+  }
+  return json({ revisionId: data.revisionId, title: data.title || row.title })
+}
+
+/** ผูกเอกสารเดิมที่ผู้ดูแลเลือกผ่าน Google Picker: server ต้องเปิดไฟล์ได้จริงด้วยสิทธิ์ของบัญชีชมรมก่อนจึงลงทะเบียน */
+async function linkExisting(ctx: Ctx): Promise<Response> {
+  const session = await requireMutation(ctx, 'admin')
+  const body = await readJson(ctx.request)
+  const fileId = typeof body.fileId === 'string' ? body.fileId.trim() : ''
+  let file
+  try {
+    file = await checkFile(makeGapi(ctx.env), fileId, DOC_MIME, 'ไฟล์ Google Docs')
+  } catch (error) {
+    throw toHttpError(error)
+  }
+  const parsed = await fetchDoc(ctx.env, file.id)
+  const now = nowIso()
+  const id = crypto.randomUUID()
+  const result = await ctx.env.DB.prepare(
+    `INSERT INTO documents (id, google_document_id, title, status, status_detail, created_by, updated_by, created_at, updated_at, last_checked_at, origin)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'selected') ON CONFLICT (google_document_id) DO NOTHING`,
+  )
+    .bind(id, file.id, parsed.title || file.name || 'ไม่มีชื่อ', parsed.supported ? 'ok' : 'read_only', parsed.reasons.join(' · '), session.user.id, session.user.id, now, now, now)
+    .run()
+  if (result.meta.changes !== 1) throw new HttpError(409, 'already_linked', 'เอกสารนี้อยู่ในรายการเอกสารของเว็บอยู่แล้ว ไม่ได้เพิ่มซ้ำ')
+  await audit(ctx.env, session.user.id, 'document.linked', id)
+  await bumpDataVersion(ctx.env, 'docs')
+  return json({ document: toDocument((await getDocument(ctx.env, id))!), content: toContent(parsed) }, 201)
+}
+
+// รายการเอกสารตามการเปลี่ยนชื่อใน Google: ตรวจ metadata ทีละชุดเล็ก เริ่มจากรายการที่ไม่ได้ตรวจนานที่สุด ไม่ดึงเนื้อหา
+registerSyncer('docs', async ({ env, gapi }) => {
+  const { results } = await env.DB.prepare('SELECT id, google_document_id, title, status FROM documents ORDER BY last_checked_at IS NOT NULL, last_checked_at LIMIT 12')
+    .all<{ id: string; google_document_id: string; title: string; status: string }>()
+  const statements: D1PreparedStatement[] = []
+  let changed = false
+  const now = nowIso()
+  for (const row of results) {
+    if (gapi.remaining() < 1) break
+    let name: string | null = null
+    try {
+      const file = await gapi.json<{ name?: string; trashed?: boolean }>(`${DRIVE_API}/${encodeURIComponent(row.google_document_id)}?fields=id,name,trashed`)
+      name = file.trashed === true ? null : (file.name ?? row.title)
+    } catch (error) {
+      // ไฟล์เดียวเปิดไม่ได้ไม่ทำให้รายการอื่นหยุด; ข้อผิดพลาดอื่น (เช่น Google ล่ม) ให้ทั้งรอบล้มเหลวและคงค่าเดิม
+      if (!(error instanceof GoogleApiError && (error.status === 404 || error.status === 403))) throw error
+    }
+    if (name === null) {
+      if (row.status !== 'unavailable') changed = true
+      statements.push(env.DB.prepare(`UPDATE documents SET status = 'unavailable', status_detail = '', last_checked_at = ? WHERE id = ?`).bind(now, row.id))
+    } else {
+      if (name !== row.title) changed = true
+      // สถานะ "เปิดไม่ได้" จะกลับเป็นปกติเมื่อมีคนเปิดเอกสารและอ่านเนื้อหาได้จริง
+      statements.push(env.DB.prepare('UPDATE documents SET title = ?, last_checked_at = ? WHERE id = ?').bind(name || 'ไม่มีชื่อ', now, row.id))
+    }
+  }
+  await batchAll(env, statements)
+  return { changed }
+})
 
 // ---------- แก้ไข ----------
 
@@ -657,6 +740,8 @@ export async function handleDocuments(ctx: Ctx, parts: string[]): Promise<Respon
     if (method === 'POST') return create(ctx)
     return null
   }
+  if (parts.length === 1 && parts[0] === 'link' && method === 'POST') return linkExisting(ctx)
+  if (parts.length === 2 && parts[1] === 'revision' && method === 'GET') return revision(ctx, parts[0])
   if (parts[0] === 'operations') {
     if (parts.length === 1 && method === 'GET') return listOperations(ctx)
     if (parts.length === 3 && parts[2] === 'resume' && method === 'POST') return resumeOperation(ctx, parts[1])

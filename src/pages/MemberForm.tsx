@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { Field, fieldAria } from '../components/ui'
 import { createKeyTracker } from '../api/client'
-import { hasCode, messageOf } from '../data/errors'
+import { hasCode, isUnconfirmed, messageOf } from '../data/errors'
 import { useStore } from '../data/store'
 import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
 import type { Member, MemberInput } from '../data/types'
@@ -105,6 +105,10 @@ export function MemberForm({ member, onClose, onSaved }: Props) {
       if (hasCode(error, 'version_conflict')) {
         setConflict((error as { data: { current: Member } }).data.current)
         setSubmitError(messageOf(error, ''))
+      } else if (isUnconfirmed(error)) {
+        // Google อาจบันทึกไปแล้ว: ไม่บอกว่าสำเร็จหรือไม่สำเร็จ ดึงค่าล่าสุดมาให้ตรวจในรายการด้านหลัง
+        refresh().catch(() => undefined)
+        setSubmitError(`${messageOf(error, '')} ข้อมูลที่กรอกยังอยู่ครบในฟอร์มนี้`)
       } else {
         setSubmitError(
           `บันทึกไม่สำเร็จ: ${messageOf(error, 'ระบบขัดข้อง')} ยังไม่มีการเปลี่ยนแปลงข้อมูล และข้อมูลที่กรอกยังอยู่ครบ กด “${member ? 'บันทึกการแก้ไข' : 'เพิ่มสมาชิก'}” เพื่อลองอีกครั้ง`,

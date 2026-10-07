@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const TABLES = [
+  'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',
   'idempotency_keys', 'events', 'members', 'oauth_states', 'sessions', 'users',
 ]

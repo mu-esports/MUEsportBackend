@@ -3,10 +3,10 @@ import { nowIso } from './env'
 import type { AppEnv, Ctx } from './env'
 import {
   buildAuthUrl, clubEmail, CONNECT_SCOPES, DRIVE_FILE_SCOPE, exchangeCode, isAuthConfigured, LOGIN_SCOPES,
-  missingConnectConfig, saveConnection, verifyIdToken,
+  missingConnectConfig, saveConnection, SERVICE_SCOPES, verifyIdToken,
 } from './google'
 import type { GoogleIdentity } from './google'
-import { cookie, HttpError, isHttps, json, parseCookies, redirect } from './http'
+import { cookie, HttpError, isHttps, json, parseCookies, readJson, redirect } from './http'
 import { audit, clearSessionCookie, createSession, deleteSession, requireMutation } from './session'
 
 const STATE_COOKIE = 'mu_oauth'
@@ -22,7 +22,7 @@ export function safeReturnPath(value: string | null): string {
 }
 
 /** เริ่ม OAuth: สร้าง state ใช้ครั้งเดียว ผูกกับเบราว์เซอร์นี้ (cookie) และจุดประสงค์ */
-async function startFlow(ctx: Ctx, purpose: Purpose, returnPath: string, userId: string | null) {
+async function startFlow(ctx: Ctx, purpose: Purpose, returnPath: string, userId: string | null, extraScopes: string[] = []) {
   const state = randomToken()
   const browser = randomToken()
   const nonce = randomToken()
@@ -50,7 +50,8 @@ async function startFlow(ctx: Ctx, purpose: Purpose, returnPath: string, userId:
     state,
     nonce,
     codeChallenge: await pkceChallenge(verifier),
-    scopes: purpose === 'login' ? LOGIN_SCOPES : CONNECT_SCOPES,
+    // การเข้าสู่ระบบขอเฉพาะ identity เสมอ; scope ของบริการเพิ่มได้เฉพาะในขั้นตอนเชื่อมของผู้ดูแล
+    scopes: purpose === 'login' ? LOGIN_SCOPES : [...CONNECT_SCOPES, ...extraScopes],
     offline: purpose === 'connect',
     loginHint: purpose === 'connect' ? clubEmail(ctx.env) : undefined,
   })
@@ -74,7 +75,16 @@ export async function startConnect(ctx: Ctx): Promise<Response> {
   if (missing.length > 0) {
     throw new HttpError(503, 'google_not_configured', 'เว็บไซต์ยังไม่ได้ตั้งค่าการเชื่อม Google', { missing })
   }
-  const { authUrl, stateCookie } = await startFlow(ctx, 'connect', '/sources', session.user.id)
+  // ขอสิทธิ์ของบริการเพิ่มทีละส่วนตามที่ผู้ดูแลเลือก (include_granted_scopes คงสิทธิ์เดิมไว้)
+  let extra: string[] = []
+  if ((ctx.request.headers.get('Content-Type') ?? '').toLowerCase().startsWith('application/json')) {
+    const service = (await readJson(ctx.request)).service
+    if (service !== undefined) {
+      if (typeof service !== 'string' || !(service in SERVICE_SCOPES)) throw new HttpError(422, 'validation_failed', 'ไม่รู้จักบริการที่ขอสิทธิ์')
+      extra = SERVICE_SCOPES[service]
+    }
+  }
+  const { authUrl, stateCookie } = await startFlow(ctx, 'connect', '/sources', session.user.id, extra)
   return json({ authUrl }, 200, { 'Set-Cookie': stateCookie })
 }
 

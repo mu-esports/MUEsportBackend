@@ -14,6 +14,17 @@ export const LOGIN_SCOPES = ['openid', 'email', 'profile']
 // ขอเท่าที่ใช้จริง: drive.file เข้าถึงเฉพาะไฟล์ที่แอปนี้สร้าง ไม่ใช่ทั้ง Drive
 export const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 export const CONNECT_SCOPES = ['openid', 'email', DRIVE_FILE_SCOPE]
+// Sheets/Docs/Forms ใช้ drive.file (เฉพาะไฟล์ที่เว็บสร้างหรือที่ผู้ดูแลเลือกผ่าน Google Picker) ไม่ต้องขอ scope เพิ่ม
+// Calendar ขอเพิ่มเฉพาะตอนผู้ดูแลเริ่มตั้งค่าปฏิทิน (incremental consent)
+export const CAL_APP_CREATED_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created'
+export const CAL_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'
+export const CAL_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+export const SERVICE_SCOPES: Record<string, string[]> = {
+  // ปฏิทินที่เว็บสร้างเอง: เห็นและแก้ได้เฉพาะปฏิทินที่สร้างผ่านเว็บนี้
+  calendar_created: [CAL_APP_CREATED_SCOPE],
+  // ปฏิทินเดิมที่ผู้ดูแลเลือก: ต้องอ่านรายชื่อปฏิทิน และอ่าน/เขียนกำหนดการของปฏิทินที่บัญชีชมรมเข้าถึงได้
+  calendar_existing: [CAL_LIST_SCOPE, CAL_EVENTS_SCOPE],
+}
 
 export const CALLBACK_PATH = '/auth/google/callback'
 const GOOGLE_TIMEOUT_MS = 20_000
@@ -165,6 +176,13 @@ interface ConnectionRow {
 
 export const loadConnection = (env: AppEnv) =>
   env.DB.prepare(`SELECT * FROM google_connections WHERE id = 'club'`).first<ConnectionRow>()
+
+/** scopes ที่ Google ยืนยันว่าได้รับจริงจากการอนุญาตครั้งล่าสุด (ว่างเมื่อยังไม่เชื่อมหรือต้องเชื่อมใหม่) */
+export async function grantedScopes(env: AppEnv): Promise<Set<string>> {
+  const row = await loadConnection(env)
+  if (!row || row.status === 'disconnected' || row.status === 'needs_reconnect') return new Set()
+  return new Set(row.scopes.split(' ').filter(Boolean))
+}
 
 /** บันทึกผลการอนุญาตของบัญชีชมรม ถ้า Google ไม่ส่ง refresh token ใหม่ให้คง token เดิมของบัญชีเดียวกันไว้ */
 export async function saveConnection(

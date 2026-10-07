@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ExternalLink, FilePlus2, FileText, LoaderCircle, SearchX, Search, TriangleAlert } from 'lucide-react'
+import { ExternalLink, FilePlus2, FileText, Link2, LoaderCircle, SearchX, Search, TriangleAlert } from 'lucide-react'
+import { useAuth } from '../auth/AuthProvider'
+import { SyncBar } from '../components/SyncBar'
 import { ConfirmDialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
 import { EmptyState, PageHeader } from '../components/ui'
 import { DOCUMENT_STATUS_LABELS, documentsApi } from '../data/documents'
 import type { DocumentInfo, PendingOperation } from '../data/documents'
 import { messageOf } from '../data/errors'
+import { useSetupInfo } from '../data/setup'
+import { useAutoSync } from '../data/sync'
+import { useSourcesStatus } from '../data/sourcesStatus'
+import { pickFile } from '../lib/picker'
 import { formatTimestamp } from '../lib/datetime'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -44,6 +50,32 @@ export function DocumentsPage() {
   }, [])
 
   useEffect(() => load(), [load])
+
+  // ชื่อเอกสารที่เปลี่ยนใน Google: รอบซิงค์อัปเดตสำเนา แล้วหน้านี้โหลดรายการใหม่เงียบ ๆ
+  useAutoSync(['docs'], () => load(true))
+
+  // ผูกเอกสารเดิม (เฉพาะผู้ดูแล): เลือกไฟล์ผ่านหน้าต่างของ Google แล้วให้ server ตรวจสิทธิ์จริงก่อนลงทะเบียน
+  const { isAdmin } = useAuth()
+  const setup = useSetupInfo(isAdmin)
+  const sources = useSourcesStatus()
+  const [linking, setLinking] = useState(false)
+  const [linkError, setLinkError] = useState('')
+  const linkExisting = async () => {
+    if (!setup.info?.picker.configured) return
+    setLinking(true)
+    setLinkError('')
+    try {
+      const file = await pickFile(setup.info.picker, 'docs', sources.data?.google.expectedEmail ?? '')
+      if (!file) return
+      const { document } = await documentsApi.link(file.id)
+      toast.success(`เชื่อมเอกสาร “${document.title}” แล้ว`)
+      load(true)
+    } catch (failure) {
+      setLinkError(messageOf(failure, 'เชื่อมเอกสารไม่สำเร็จ ลองอีกครั้ง'))
+    } finally {
+      setLinking(false)
+    }
+  }
 
   // กลับมาที่แท็บนี้: ดึงรายการล่าสุดที่คนอื่นอาจสร้างหรือแก้ไว้
   useEffect(() => {
@@ -98,14 +130,35 @@ export function DocumentsPage() {
     <>
       <PageHeader
         title="เอกสาร"
-        description="เอกสารข้อความที่สร้างจากเว็บนี้ เนื้อหาเก็บเป็น Google Docs ในบัญชีของชมรม"
+        description="เอกสารข้อความของชมรม เนื้อหาเก็บเป็น Google Docs ในบัญชีของชมรม"
         action={
-          <Link to="/documents/new" className="button button-primary">
-            <FilePlus2 aria-hidden="true" size={18} />
-            สร้างเอกสาร
-          </Link>
+          <>
+            {isAdmin && (
+              <button type="button" className="button" onClick={linkExisting} disabled={linking || !setup.info?.picker.configured} aria-describedby={setup.info && !setup.info.picker.configured ? 'link-doc-hint' : undefined}>
+                <Link2 aria-hidden="true" size={18} />
+                {linking ? 'กำลังเปิดหน้าต่างของ Google…' : 'เชื่อมเอกสารที่มีอยู่'}
+              </button>
+            )}
+            <Link to="/documents/new" className="button button-primary">
+              <FilePlus2 aria-hidden="true" size={18} />
+              สร้างเอกสาร
+            </Link>
+          </>
         }
       />
+
+      {isAdmin && setup.info && !setup.info.picker.configured && (
+        <p className="field-hint" id="link-doc-hint">
+          การเชื่อมเอกสารที่มีอยู่ต้องตั้งค่า Google Picker ก่อน ดูรายละเอียดที่หน้า <Link to="/sources">แหล่งข้อมูล</Link>
+        </p>
+      )}
+      {linkError && (
+        <p className="form-alert" role="alert">
+          {linkError}
+        </p>
+      )}
+
+      <SyncBar kinds={['docs']} />
 
       {state === 'loading' && (
         <div className="state-block" role="status">

@@ -10,3 +10,8 @@ GOOGLE_CLIENT_SECRET=
 # กุญแจ AES-256-GCM ยาว 32 ไบต์แบบ base64 ใช้เข้ารหัส token ของ Google ใน D1
 # สร้างด้วย: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 TOKEN_ENCRYPTION_KEY=
+
+# (ไม่บังคับ) Google Picker สำหรับเลือกไฟล์เดิมจากหน้าเว็บ: API key ของเบราว์เซอร์ (จำกัด referrer เป็น http://localhost:5173/* และจำกัดเฉพาะ Google Picker API)
+# และเลขโครงการ Google Cloud ทั้งสองค่าไม่ใช่ค่าลับ เว้นว่าง = ยังเลือกไฟล์เดิมไม่ได้ แต่สร้างชุดข้อมูลใหม่ได้
+GOOGLE_PICKER_API_KEY=
+GOOGLE_CLOUD_PROJECT_NUMBER=

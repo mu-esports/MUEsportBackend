@@ -10,6 +10,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { chromium, webkit } from 'playwright-core'
 import { prepareLocalDatabase } from './local-fixtures.mjs'
+import { checkMonthChip, probeLoadSignal, saveMonthChipDiagnostics, traceApi } from './ui-data-ready.mjs'
 
 const PORT = Number(process.env.UI_LIVE_PORT ?? 5183)
 const BASE = `http://localhost:${PORT}`
@@ -303,8 +304,11 @@ try {
 
   // ================= 3. กำหนดการในระบบ + deep link =================
   await a.locator('.sidebar').getByRole('link', { name: 'ปฏิทิน', exact: true }).click()
-  check('[จริง] ปฏิทิน: ระบุว่าเป็นกำหนดการในระบบ ไม่เรียกว่า Google Calendar',
-    (await appears(a.getByText('กำหนดการในระบบของชมรม'))) && (await a.locator('main').getByText('Google Calendar').count()) === 0)
+  const calendarSource = a.locator('main .sync-row[data-sync-kind="calendar"]')
+  check('[จริง] ปฏิทิน: ระบุว่าเป็นกำหนดการในระบบ และแถบแหล่งข้อมูลบอกว่ายังไม่ได้เชื่อม Google Calendar ไม่มีป้ายว่าเป็นข้อมูลจาก Google หรือเวลาอัปเดตจาก Google',
+    (await appears(a.getByText('กำหนดการในระบบของชมรม'))) && (await appears(calendarSource)) && (await calendarSource.getAttribute('data-sync-state')) === 'local' &&
+    (await calendarSource.innerText()).trim() === 'ข้อมูลในเว็บ (ยังไม่ได้เชื่อม Google Calendar)' && (await a.locator('main .badge-source, main .sync-state').count()) === 0 &&
+    (await a.locator('main').getByRole('button', { name: /อัปเดตจาก Google/ }).count()) === 0)
   await a.getByRole('button', { name: 'เพิ่มกำหนดการ' }).first().click()
   await a.locator('#event-title').fill('ประชุมทีมงานประจำสัปดาห์ เตรียมงานแข่งขันรอบคัดเลือก')
   await a.getByRole('button', { name: 'เพิ่มกำหนดการ' }).last().click()
@@ -404,22 +408,27 @@ try {
     check('[จริง] แหล่งข้อมูล: ยังไม่ได้เชื่อม ไม่มีป้ายเชื่อมแล้ว', connectionText.includes('ยังไม่ได้เชื่อม') && !connectionText.includes('เชื่อมแล้ว'))
   }
   check('[จริง] แหล่งข้อมูล: บัญชีที่ต้องใช้คือบัญชีชมรม และยังไม่มีบัญชีที่เชื่อมอยู่', connectionText.includes('muesport2567@gmail.com') && connectionText.includes('ยังไม่มี'))
-  check('[จริง] แหล่งข้อมูล: มี Google Docs, Sheets ยังไม่ได้เลือกชีต, Calendar ยังไม่ได้เลือกปฏิทิน, Forms/Excel ยังไม่เปิดใช้',
-    (await admin.locator('.source-card').count()) === 5 && sourceText.includes('Google Docs') && sourceText.includes('รอเชื่อมบัญชี Google') &&
-    sourceText.includes('ยังไม่ได้เลือกชีต') && sourceText.includes('ยังไม่ได้เลือกปฏิทิน') && (sourceText.match(/ยังไม่เปิดใช้/g) ?? []).length === 2)
-  check('[จริง] แหล่งข้อมูล: ไม่มีคำว่า sync หรือเชื่อมสำเร็จ', !/sync|ซิงก์|เชื่อมสำเร็จ|เชื่อมต่อแล้ว/i.test(await admin.locator('main').innerText()))
+  await admin.locator('.data-space .resource-state').nth(2).waitFor()
+  const spaceText = await admin.locator('.data-space').innerText()
+  check('[จริง] แหล่งข้อมูล: Google Docs รอเชื่อมบัญชี, Sheets/Calendar/Forms ยังไม่ได้เชื่อม (สถานะจริงจาก server), Excel ยังไม่เปิดใช้',
+    (await admin.locator('.source-card').count()) === 2 && sourceText.includes('Google Docs') && sourceText.includes('รอเชื่อมบัญชี Google') &&
+    (sourceText.match(/ยังไม่เปิดใช้/g) ?? []).length === 1 && sourceText.includes('Excel') &&
+    (await admin.locator('.data-space .resource-row').count()) === 3 && (spaceText.match(/ยังไม่ได้เชื่อม/g) ?? []).length === 3 &&
+    ['Google Sheets', 'Google Calendar', 'Google Forms'].every((name) => spaceText.includes(name)))
+  check('[จริง] แหล่งข้อมูล: ไม่มีคำว่าเชื่อมสำเร็จ ไม่มีป้ายเชื่อมแล้ว และไม่มีสถานะซิงค์ของแหล่งที่ยังไม่ได้เชื่อม',
+    !/เชื่อมสำเร็จ|เชื่อมต่อแล้ว|อัปเดตจาก Google สำเร็จ|ซิงค์ไม่สำเร็จ/i.test(await admin.locator('main').innerText()) &&
+    (await admin.locator('.data-space .resource-state .badge').allInnerTexts()).every((t) => t.trim() === 'ยังไม่ได้เชื่อม') &&
+    (await admin.locator('.data-space .badge-active, .data-space .resource-state a').count()) === 0)
   await shot(admin, 'live-sources-not-configured-1440')
-  await admin.getByRole('button', { name: 'ดูรายละเอียด Google Calendar' }).click()
-  check('[จริง] รายละเอียด Calendar: บอกว่ายังไม่ได้เลือกปฏิทิน และยังไม่ขอสิทธิ์ Calendar',
-    await appears(admin.locator('dialog[open]').getByText('ยังไม่ขอสิทธิ์ Calendar จาก Google')))
-  await admin.keyboard.press('Escape')
+  check('[จริง] แหล่งข้อมูล: ยังไม่ได้เชื่อมบัญชี Google จึงไม่มีปุ่มสร้างหรือเลือกแหล่งข้อมูล และบอกว่าต้องเชื่อมบัญชีก่อน',
+    (await admin.locator('.data-space').getByRole('button').count()) === 0 && spaceText.includes('ต้องเชื่อมบัญชี Google ของชมรมด้านบนให้ใช้งานได้ก่อน'))
 
   await a.goto(`${BASE}/sources`)
   await a.locator('.connection-card').waitFor()
   check('[จริง] staff ที่หน้าแหล่งข้อมูล: ไม่เห็นชื่อค่าตั้งและไม่มีปุ่มจัดการการเชื่อม',
     !(await a.locator('.connection-card').innerText()).includes('TOKEN_ENCRYPTION_KEY') &&
     (await a.locator('.connection-card').getByRole('button').count()) === 0 &&
-    (await a.getByText('ทำได้เฉพาะผู้ดูแลระบบ').isVisible()))
+    (await a.locator('.connection-card').getByText('ทำได้เฉพาะผู้ดูแลระบบ').isVisible()))
   await a.goto(`${BASE}/`)
   check('[จริง] ภาพรวม: สรุปแหล่งข้อมูลใช้สถานะจาก server',
     (await appears(a.locator('.source-summary', { hasText: 'ยังไม่ได้เลือกชีต' }))) && (await a.locator('.source-summary li').count()) === 6 &&
@@ -429,7 +438,7 @@ try {
   // สถานะเชื่อมแล้ว / ต้องเชื่อมใหม่ (จำลองคำตอบ /api/sources เพื่อดูหน้าจอ)
   const sourcesMock = (google, docs) => ({
     google: { expectedEmail: 'muesport2567@gmail.com', email: 'muesport2567@gmail.com', connectedAt: '2026-10-01T03:00:00.000Z', lastCheckedAt: '2026-10-04T10:05:00.000Z', lastError: null, missingConfig: [], ...google },
-    resources: [{ id: 'docs', status: docs }, { id: 'sheets', status: 'not_selected' }, { id: 'calendar', status: 'not_selected' }, { id: 'forms', status: 'disabled' }, { id: 'excel', status: 'disabled' }],
+    resources: [{ id: 'docs', status: docs }, { id: 'sheets', status: 'not_selected' }, { id: 'calendar', status: 'not_selected' }, { id: 'forms', status: 'not_selected' }, { id: 'excel', status: 'disabled' }],
   })
   for (const [name, google, docs, expectText] of [
     ['connected', { status: 'connected' }, 'ready', 'เชื่อมแล้ว'],
@@ -441,15 +450,18 @@ try {
       await p.goto(`${BASE}/sources`)
       await p.locator('.connection-card').waitFor()
       const text = await p.locator('.connection-card').innerText()
-      check(`[จำลอง] แหล่งข้อมูลสถานะ ${name} ${width}px: แสดงบัญชี สถานะ เวลาตรวจล่าสุด และ Sheets/Calendar ยังไม่ได้เลือก`,
+      await p.locator('.data-space .resource-state').nth(2).waitFor()
+      const space = p.locator('.data-space')
+      check(`[จำลอง] แหล่งข้อมูลสถานะ ${name} ${width}px: แสดงบัญชี สถานะ เวลาตรวจล่าสุด และ Sheets/Calendar/Forms ยังไม่ได้เชื่อม (ปุ่มสร้างชุดข้อมูลมีเฉพาะเมื่อบัญชีเชื่อมอยู่)`,
         text.includes(expectText) && text.includes('4 ต.ค. 2569 17:05 น.') && text.includes('muesport2567@gmail.com') &&
-        (await p.locator('.source-grid').innerText()).includes('ยังไม่ได้เลือกปฏิทิน') && (await noOverflow(p)) &&
+        ((await space.innerText()).match(/ยังไม่ได้เชื่อม/g) ?? []).length === 3 && (await space.getByRole('button', { name: 'สร้างชุดข้อมูลชมรม' }).count()) === (name === 'connected' ? 1 : 0) &&
+        (await noOverflow(p)) &&
         (await p.getByRole('button', { name: 'ตัดการเชื่อม' }).isVisible()))
       await shot(p, `live-sources-${name}-${width}`)
       if (name === 'connected' && width === 1440) {
         await p.getByRole('button', { name: 'ตัดการเชื่อม' }).click()
         check('[จำลอง] ตัดการเชื่อม: อธิบายผลก่อนยืนยัน (ไม่ลบไฟล์ Google และข้อมูลในเว็บ)',
-          await appears(p.locator('dialog[open]').getByText('ไฟล์ใน Google Docs ของชมรมไม่ถูกลบ')))
+          (await appears(p.locator('dialog[open]').getByText('ไฟล์ ปฏิทิน และฟอร์มใน Google ของชมรมไม่ถูกลบ'))) && (await p.locator('dialog[open]').getByText('จะหยุดซิงค์กับ Google Sheets, Calendar และ Forms').isVisible()))
         await p.screenshot({ path: `${OUT}/live-sources-disconnect-confirm-1440.png` })
       }
       await p.context().close()
@@ -927,9 +939,40 @@ try {
     const otherTab = await p.context().newPage()
     await otherTab.goto(`${BASE}/members`)
     await otherTab.locator('#main h1').waitFor()
+    // ข้อความของขั้นก่อนหน้า “ยืนยันไม่ได้ว่าออกจากระบบแล้วหรือยัง” มีคำว่า “ออกจากระบบแล้ว” อยู่ข้างใน และยังแสดงอยู่ระหว่างลองใหม่ (ตามที่ออกแบบ)
+    // ตัวตรวจจึงต้องรอ URL ของหน้าเข้าสู่ระบบอย่างเจาะจง และจับข้อความแจ้งผลแบบตรงตัวในหน้านั้น ไม่ใช่จับ substring ระหว่างที่ยังไม่เปลี่ยนหน้า
+    // เก็บเฉพาะ method, path, status และการเปลี่ยนหน้า (ไม่มี cookie, token หรือเนื้อหา) ไว้แสดงเมื่อข้อตรวจไม่ผ่าน
+    const trace = []
+    const started = Date.now()
+    const note = (text) => trace.push(`${Date.now() - started}ms ${text}`)
+    p.on('request', (r) => /^\/(api|auth)\//.test(new URL(r.url()).pathname) && note(`→ ${r.method()} ${new URL(r.url()).pathname}`))
+    p.on('response', (r) => /^\/(api|auth)\//.test(new URL(r.url()).pathname) && note(`← ${r.status()} ${new URL(r.url()).pathname}`))
+    p.on('framenavigated', (f) => f === p.mainFrame() && note(`nav ${new URL(f.url()).pathname}${new URL(f.url()).search}`))
+    // หน่วงคำตอบที่สำเร็จของ server จริง เพื่อให้มีช่วงที่คำขอส่งไปแล้วแต่หน้ายังไม่เปลี่ยน
+    let delayedLogouts = 0
+    await p.route('**/auth/logout', async (route) => {
+      delayedLogouts++
+      const response = await route.fetch()
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      return route.fulfill({ response })
+    })
     await button.click()
+    await p.waitForTimeout(500)
+    const during = {
+      path: new URL(p.url()).pathname,
+      substring: await p.getByText('ออกจากระบบแล้ว').count(),
+      exact: await p.getByText('ออกจากระบบแล้ว', { exact: true }).count(),
+      oldMessage: await error.getByText('ยืนยันไม่ได้ว่าออกจากระบบแล้วหรือยัง').count(),
+    }
+    check(`${tag}: ระหว่างรอคำตอบออกจากระบบ (หน่วง 1.5 วินาที): ยังอยู่หน้าเดิม ข้อความเก่ายังแสดง ซึ่งการจับ substring จะเข้าใจผิดว่าออกแล้ว แต่การจับแบบตรงตัวไม่พบ`,
+      during.path === '/documents/new' && during.oldMessage === 1 && during.substring >= 1 && during.exact === 0 && delayedLogouts === 1, JSON.stringify(during))
+    const arrived = await p.waitForURL((url) => url.pathname === '/login' && url.searchParams.get('loggedOut') === '1', { timeout: 8000 }).then(() => true, () => false)
+    const notice = arrived && (await appears(p.locator('p.notice').getByText('ออกจากระบบแล้ว', { exact: true })))
     check(`${tag}: ลองใหม่สำเร็จ → ไปหน้าเข้าสู่ระบบ บอกว่าออกจากระบบแล้ว และไม่ถูกถามเรื่องทิ้งร่างซ้ำ`,
-      (await appears(p.getByText('ออกจากระบบแล้ว'))) && new URL(p.url()).pathname === '/login' && prompts === 0)
+      arrived && notice && new URL(p.url()).pathname === '/login' && new URL(p.url()).searchParams.get('loggedOut') === '1' &&
+      (await p.getByText('ยืนยันไม่ได้ว่าออกจากระบบแล้วหรือยัง').count()) === 0 && prompts === 0 && delayedLogouts === 1,
+      arrived && notice && prompts === 0 ? '' : `${new URL(p.url()).pathname}${new URL(p.url()).search} · ถามทิ้งร่าง ${prompts} ครั้ง · ${trace.join(' | ')}`)
+    await p.unroute('**/auth/logout')
     check(`${tag}: หลังออกจากระบบ /api/session ไม่คืน user, session เดิมใช้กับ API ไม่ได้ และ cookie ถูกล้าง`,
       (await sessionUser(p)) === null && (await oldSessionStatus(p, token)) === 401 &&
       !(await p.context().cookies()).some((c) => c.name === 'mu_session' && c.value))
@@ -950,7 +993,7 @@ try {
     })
     await logoutButton(lost, mobile).click()
     check(`${tag}: server ลบ session แล้วแต่คำตอบหาย → ตรวจสถานะแล้วยืนยันว่าออกจากระบบ ไม่กลับเข้าเว็บเอง`,
-      (await appears(lost.getByText('ออกจากระบบแล้ว'))) && new URL(lost.url()).pathname === '/login' &&
+      (await appears(lost.locator('p.notice').getByText('ออกจากระบบแล้ว', { exact: true }))) && new URL(lost.url()).pathname === '/login' &&
       (await sessionUser(lost)) === null && (await oldSessionStatus(lost, lostToken)) === 401)
     await lost.waitForTimeout(500)
     check(`${tag}: หลังยืนยันแล้วไม่ถูกพากลับหน้าหลัก`, new URL(lost.url()).pathname === '/login')
@@ -968,7 +1011,7 @@ try {
     if (mobile) await gone1.getByRole('button', { name: 'เปิดเมนู' }).click()
     await logoutButton(gone1, mobile).click()
     check(`${tag}: session หมดไปก่อนกดออกจากระบบ → ไปหน้าเข้าสู่ระบบได้ถูกต้อง ไม่ค้างที่ข้อผิดพลาดหรือกล่องเซสชันหมดอายุ`,
-      killed.status === 200 && (await appears(gone1.getByText('ออกจากระบบแล้ว'))) && new URL(gone1.url()).pathname === '/login' &&
+      killed.status === 200 && (await appears(gone1.locator('p.notice').getByText('ออกจากระบบแล้ว', { exact: true }))) && new URL(gone1.url()).pathname === '/login' &&
       (await gone1.locator('dialog[open]').count()) === 0)
     await gone1.context().close()
   }
@@ -982,13 +1025,32 @@ try {
     ['/', 'overview'], ['/members', 'members'], ['/calendar', 'calendar'], ['/documents', 'documents'],
     ['/documents/doc-1', 'document-editor'], ['/documents/new', 'document-new'], ['/sources', 'sources'], ['/team', 'team'],
   ]
+  // สัญญาณ “โหลดเสร็จ” ที่ sweep และข้อตรวจอื่นใช้รอ (สถานะกำลังโหลดหายไป) ต้องหมายความว่าข้อมูลชุดล่าสุดถูกวาดแล้ว
+  // ไม่เช่นนั้นข้อตรวจที่วัดหน้าทันทีหลังสัญญาณนี้จะวัดหน้าว่าง และผู้ใช้จะเห็นข้อความว่าไม่มีข้อมูลชั่วครู่ทั้งที่มีข้อมูล
+  async function loadSignalCheck(engine, engineName) {
+    for (const [name, options] of [
+      // เปิดด้วยลิงก์ของกำหนดการ: ไม่ขึ้นกับว่ากำหนดการทดสอบอยู่ในเดือนที่ปฏิทินแสดงหรือไม่
+      ['ปฏิทิน (เปิดด้วยลิงก์ของกำหนดการ)', { url: `${BASE}/calendar?event=${eventId}`, api: '/api/events', dataSelector: 'dialog.dialog h2', wrongText: 'ไม่พบกำหนดการที่ต้องการเปิด' }],
+      ['สมาชิก', { url: `${BASE}/members`, api: '/api/members', dataSelector: '.members-table tbody tr', wrongText: 'ยังไม่มีสมาชิก' }],
+    ]) {
+      const p = await newPage(1440, 900, actors.admin, 0, engine)
+      const result = await probeLoadSignal(p, options)
+      check(`[${engineName}] ${name}: หน้ายังแสดง “กำลังโหลด” จนกว่าคำตอบชุดล่าสุดจะมาถึง ไม่ขึ้นว่าโหลดเสร็จหรือ “${options.wrongText}” ก่อนข้อมูลจริง`,
+        result.ok, JSON.stringify(result.detail))
+      await p.context().close()
+    }
+  }
+
   async function sweep(engine, engineName, viewports, shots) {
     for (const [width, height, label] of viewports) {
       const p = await newPage(width, height, actors.admin, 0, engine)
+      // เหตุการณ์ของหน้าแบบย่อ (method, path, สถานะ) เก็บไว้ใช้เป็นหลักฐานเฉพาะเมื่อข้อตรวจปฏิทินเดือนไม่ผ่าน
+      const trace = traceApi(p)
       await mockDocuments(p, mockState())
       const mobile = width < 768
       const menuMode = width < 1024
       for (const [path, name] of PAGES) {
+        trace.reset()
         await p.goto(BASE + path)
         await p.locator('#main h1').waitFor()
         await p.locator('.state-block[role="status"]').waitFor({ state: 'detached' }).catch(() => undefined)
@@ -1000,8 +1062,23 @@ try {
           const pressed = await p.getByRole('button', { name: mobile ? 'รายการ' : 'เดือน', exact: true }).getAttribute('aria-pressed')
           check(`[${engineName}] ${label} ปฏิทิน: ${mobile ? 'มือถือเริ่มที่มุมมองรายการ' : 'จอกว้างเริ่มที่มุมมองเดือน'}`, pressed === 'true')
           if (!mobile && width >= 1024) {
-            check(`[${engineName}] ${label} ปฏิทินเดือน: เห็นเวลาและชื่อกำหนดการในช่องวัน`,
-              (await p.locator('.chip .chip-time').first().isVisible()) && (await p.locator('.chip .chip-title').first().innerText()).startsWith('ประชุมทีมงาน'))
+            // เป้าหมายคือกำหนดการที่ชุดตรวจสร้างไว้ในขั้นที่ 3 (รู้ id แน่นอน) อ่านค่าปัจจุบันจาก API ด้วย session ของหน้านี้
+            // ไม่สมมติว่าป้ายแรกของหน้าคือรายการนี้ และรอให้ป้ายของรายการนี้แสดงก่อนตรวจ (ดู scripts/ui-data-ready.mjs)
+            const apiEvents = JSON.parse((await apiAs(p, '/api/events')).body).events ?? []
+            const target = apiEvents.find((e) => e.id === eventId)
+            const result = target
+              ? await checkMonthChip(p, target)
+              : { ok: false, problems: ['ข้อมูลทดสอบ: ไม่พบกำหนดการที่ชุดตรวจสร้างไว้ในคำตอบของ /api/events'], seen: null }
+            const ok = result.ok && target.title.startsWith('ประชุมทีมงาน')
+            let detail = ok ? `วันที่ ${result.seen.target.day} เวลา ${result.seen.target.timePart.text} “${result.seen.target.titlePart.text.slice(0, 24)}…” (รอ ${result.waitedMs}ms)` : ''
+            if (!ok) {
+              // เก็บภาพหน้าจอ เหตุการณ์ของหน้า และรายการที่แสดงเทียบกับข้อมูลจาก API เพื่อแยกว่าสาเหตุอยู่ที่หน้าเว็บ ข้อมูลทดสอบ หรือตัวตรวจ
+              const files = await saveMonthChipDiagnostics(p, {
+                dir: OUT, name: `diag-month-chip-${engineName.replace(/[^A-Za-z]/g, '')}-${label}`, target, result, trace: trace.lines(), apiEvents,
+              })
+              detail = `${result.problems.join(' · ') || 'ชื่อของกำหนดการทดสอบไม่ขึ้นต้นด้วย “ประชุมทีมงาน”'} — หลักฐาน: ${files.report}${files.screenshot ? ` , ${files.screenshot}` : ''}`
+            }
+            check(`[${engineName}] ${label} ปฏิทินเดือน: เห็นเวลาและชื่อกำหนดการในช่องวัน`, ok, detail)
           }
         }
         if (name === 'document-editor') {
@@ -1066,6 +1143,7 @@ try {
       await p.context().close()
     }
   }
+  await loadSignalCheck(browser, 'Edge/Chromium')
   await sweep(browser, 'Edge/Chromium', VIEWPORTS, true)
 
   // ================= 8.1 พอร์ทัลหน้าแรก: ทางลัดตามสิทธิ์ ปฏิทินหน้าแรก ธีม และ breakpoint ของเมนู =================
@@ -1104,7 +1182,14 @@ try {
   {
     const p = await newPage(1440, 900, actors.a, 1)
     const writes = []
-    p.on('request', (r) => r.method() !== 'GET' && writes.push(`${r.method()} ${new URL(r.url()).pathname}`))
+    const syncTriggers = []
+    p.on('request', (r) => {
+      if (r.method() === 'GET') return
+      const path = new URL(r.url()).pathname
+      // คำสั่ง “ตรวจจาก Google ถ้าถึงรอบ” ที่หน้าเว็บส่งเองเมื่อเปิดหน้า ไม่ใช่การเขียนข้อมูลของผู้ใช้: นับแยก และต้องไม่เป็นแบบบังคับ (force)
+      if (['sheets', 'calendar', 'forms', 'docs'].some((kind) => path === `/api/sync/${kind}`) && r.postDataJSON()?.force !== true) return void syncTriggers.push(path)
+      writes.push(`${r.method()} ${path}`)
+    })
     await p.goto(`${BASE}/`)
     const home = p.locator('.home-calendar')
     await home.locator('.chip').first().waitFor()
@@ -1141,8 +1226,9 @@ try {
     check('[จริง] ปฏิทินหน้าแรก → รายละเอียด: refresh แล้วยังเปิดรายการเดิม', await appears(p.locator('dialog.dialog[open] h2', { hasText: chipTitle })))
     await p.keyboard.press('Escape')
     await p.locator('dialog[open]').waitFor({ state: 'detached' })
-    check('[จริง] ปฏิทินหน้าแรก: หน้าแรกไม่มี dialog ของตัวเองและไม่ส่งคำขอเขียนข้อมูล',
-      writes.length === 0 && new URL(p.url()).searchParams.get('event') === null, writes.join(', '))
+    check('[จริง] ปฏิทินหน้าแรก: หน้าแรกไม่มี dialog ของตัวเองและไม่ส่งคำขอเขียนข้อมูล (มีเฉพาะคำสั่งตรวจจาก Google ตามรอบ ไม่เกินบริการละหนึ่งครั้งต่อการเปิดหน้า)',
+      writes.length === 0 && new URL(p.url()).searchParams.get('event') === null && syncTriggers.every((path) => path === '/api/sync/sheets' || path === '/api/sync/calendar') && syncTriggers.length <= 8,
+      `${writes.join(', ')} · ตรวจตามรอบ ${syncTriggers.length} ครั้ง`)
 
     // ธีม
     await p.goto(`${BASE}/`)
@@ -1676,12 +1762,501 @@ try {
     ignoreErrorsSince(errorsBeforeTeam)
   }
 
+  // ================= 8.4 Google Sync: สถานะบนทุกหน้า การตั้งค่า ฟอร์ม และฉบับใหม่ของเอกสาร =================
+  // ทุกข้อในส่วนนี้ตอบ API ของระบบด้วยข้อมูลจำลองในเบราว์เซอร์ทดสอบ เพื่อดูหน้าจอในแต่ละสถานะ ไม่มีการเรียก Google จริง
+  // (การซิงค์จริงสองทิศทางตรวจใน test/sync-*.test.ts กับ Google จำลองฝั่ง Worker)
+  {
+    const errorsBeforeSync = consoleErrors.length
+    const iso = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString()
+    const unlinked = (kind) => ({ kind, linked: kind === 'docs', resource: null, syncing: false, lastSuccessAt: null, lastAttemptAt: null, error: null, retryAt: null, issues: [], dataVersion: 1 })
+    const linkedStatus = (kind, name, over = {}) => ({
+      ...unlinked(kind), linked: true, lastSuccessAt: iso(1), lastAttemptAt: iso(1), ...over,
+      resource: { id: `res-${kind}`, name, url: `https://docs.google.com/mock/${kind}`, origin: 'created', access: 'write', ...(over.resource ?? {}) },
+    })
+    /** ตอบ /api/sync ด้วยสถานะใน state และนับคำสั่งซิงค์ที่หน้าเว็บส่ง */
+    const mockSync = async (target, state) => {
+      state.runs ??= []
+      await target.route('**/api/sync', (route) => route.fulfill({ json: { sync: ['sheets', 'calendar', 'forms', 'docs'].map((k) => state.statuses[k] ?? unlinked(k)) } }))
+      await target.route('**/api/sync/*', async (route) => {
+        const kind = new URL(route.request().url()).pathname.split('/').pop()
+        const body = route.request().postDataJSON() ?? {}
+        state.runs.push({ kind, force: body.force === true })
+        if (state.delay && body.force) await new Promise((resolve) => setTimeout(resolve, state.delay))
+        state.onRun?.(kind, body.force === true)
+        const status = state.statuses[kind] ?? unlinked(kind)
+        await route.fulfill({ json: { ran: status.linked, skipped: status.linked ? null : 'not_linked', status } })
+      })
+    }
+    const themed = async (p, theme) => theme === 'dark' && (await p.addInitScript((key) => localStorage.setItem(key, 'dark'), THEME_KEY))
+    const tap = (p, selector) => p.locator(selector).evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().width > 0).map((el) => Math.round(el.getBoundingClientRect().height)))
+
+    // ---------- สมาชิก: ที่มา เวลาอัปเดต กำลังซิงค์ ล้มเหลว อาจไม่ล่าสุด และไม่ทับร่าง ----------
+    const memberOf = (id, name, over = {}) => ({ id, name, nickname: name.slice(0, 2), role: 'member', status: 'active', contact: '', note: '', addedAt: '2026-10-01', version: 1, source: 'sheets', sourceState: 'ok', ...over })
+    for (const [width, height, theme] of [[1440, 900, 'light'], [390, 844, 'light'], [390, 844, 'dark'], [1440, 900, 'dark']]) {
+      const tag = `[จำลอง] สมาชิก+ชีต ${width}px ธีม${theme === 'dark' ? 'มืด' : 'สว่าง'}`
+      const p = await newPage(width, height, actors.a, 1)
+      await themed(p, theme)
+      const state = { statuses: { sheets: linkedStatus('sheets', 'MU Esport — ทะเบียนสมาชิก') } }
+      const members = [memberOf('m1', 'อารี ทดสอบ'), memberOf('m2', 'บุญมี เฉพาะเว็บ', { source: 'local' }), memberOf('m3', 'ชาตรี หายจากชีต', { sourceState: 'missing' })]
+      await mockSync(p, state)
+      await p.route('**/api/members', (route) => (route.request().method() === 'GET' ? route.fulfill({ json: { members } }) : route.fallback()))
+      await p.route('**/api/members/m1', (route) => route.fulfill({ status: 409, json: { error: 'version_conflict', message: 'ข้อมูลนี้ถูกแก้ไขจากที่อื่นหลังจากที่คุณเปิด ยังไม่ได้บันทึกสิ่งที่คุณแก้', current: { ...members[0], nickname: 'จาก Google', version: 2 } } }))
+      await p.goto(`${BASE}/members`)
+      const row = p.locator('.sync-row[data-sync-kind="sheets"]')
+      await row.waitFor()
+      await p.locator('tbody tr').nth(2).waitFor()
+      check(`${tag}: บอกที่มา (Google Sheets + ชื่อและลิงก์ต้นฉบับ) เวลาอัปเดตล่าสุด และมีปุ่ม “อัปเดตจาก Google”`,
+        (await row.getAttribute('data-sync-state')) === 'ok' && (await row.locator('.badge-source').innerText()).includes('Google Sheets') &&
+        (await row.locator('a.sync-origin').getAttribute('href')) === 'https://docs.google.com/mock/sheets' && /อัปเดตล่าสุด .+ น\./.test(await row.locator('.sync-state').innerText()) &&
+        (await row.getByRole('button', { name: 'อัปเดตจาก Google Sheets' }).isEnabled()))
+      check(`${tag}: สมาชิกที่อยู่เฉพาะในเว็บและที่ไม่พบในชีตมีป้ายกำกับ ไม่ปนกับสำเนาจากชีต และหน้าไม่ล้น`,
+        (await p.locator('tbody tr', { hasText: 'บุญมี' }).locator('.source-note').innerText()) === 'เฉพาะในเว็บ' &&
+        (await p.locator('tbody tr', { hasText: 'ชาตรี' }).locator('.source-note').innerText()) === 'ไม่พบในชีตต้นฉบับ' &&
+        (await p.locator('tbody tr', { hasText: 'อารี' }).locator('.source-note').count()) === 0 && (await noOverflow(p)))
+      if (width < 1024) check(`${tag}: ปุ่มในแถบสถานะสูง ≥44px`, (await tap(p, '.sync-row .button')).every((h) => h >= 44), JSON.stringify(await tap(p, '.sync-row .button')))
+      await shot(p, `live-sync-members-${width}${theme === 'dark' ? '-dark' : ''}`)
+
+      // มีร่างค้างในฟอร์มแก้ไข แล้วสำเนาจาก Google เปลี่ยน: รายการด้านหลังอัปเดต แต่ร่างและ focus ไม่ถูกแตะ
+      await p.getByRole('button', { name: 'ดูรายละเอียด อารี ทดสอบ' }).click()
+      await p.getByRole('button', { name: 'แก้ไข' }).click()
+      await p.locator('#member-nickname').fill('ร่างของฉัน')
+      await p.locator('#member-nickname').focus()
+      members[0] = { ...members[0], nickname: 'จาก Google', version: 2 }
+      members.push(memberOf('m4', 'ดารา มาใหม่'))
+      state.statuses.sheets = { ...state.statuses.sheets, dataVersion: 2, lastSuccessAt: iso(0) }
+      await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+      await p.locator('tbody tr', { hasText: 'ดารา มาใหม่' }).waitFor({ state: 'attached' })
+      check(`${tag}: ข้อมูลใหม่จาก Google ขึ้นในรายการโดยไม่ต้องโหลดหน้าใหม่ ส่วนร่างที่กำลังกรอกและ focus ยังอยู่`,
+        (await p.locator('#member-nickname').inputValue()) === 'ร่างของฉัน' && (await p.evaluate(() => document.activeElement?.id)) === 'member-nickname' &&
+        (await p.locator('tbody tr', { hasText: 'อารี' }).locator('.member-nickname').innerText()) === 'จาก Google')
+      await p.getByRole('button', { name: 'บันทึกการแก้ไข' }).click()
+      check(`${tag}: บันทึกจากร่างเก่าได้ข้อความ conflict พร้อมปุ่มโหลดค่าล่าสุด และค่าที่กรอกยังอยู่`,
+        (await appears(p.locator('dialog[open] .form-alert', { hasText: 'ถูกแก้ไขจากที่อื่น' }))) && (await p.locator('#member-nickname').inputValue()) === 'ร่างของฉัน' &&
+        (await p.getByRole('button', { name: 'โหลดค่าล่าสุด (แทนที่ค่าที่กรอกไว้)' }).isVisible()))
+      await p.getByRole('button', { name: 'ยกเลิก' }).click()
+      await p.getByRole('button', { name: 'ทิ้งการแก้ไข' }).click()
+      // ปิดฟอร์มแล้วกลับมาที่รายละเอียดของสมาชิกคนเดิม: ปิดรายละเอียดก่อนทำขั้นถัดไป
+      await p.locator('dialog[open] .detail-list').waitFor()
+      await p.keyboard.press('Escape')
+      await gone(p.locator('dialog[open]'))
+
+      if (theme === 'light') {
+        // สมาชิกที่ไม่พบในชีต: อธิบาย ไม่มีปุ่มแก้ และมีทางเปิดต้นฉบับ
+        await p.getByRole('button', { name: 'ดูรายละเอียด ชาตรี หายจากชีต' }).click()
+        const dialog = p.locator('dialog[open]')
+        check(`${tag}: สมาชิกที่ไม่พบในชีต: บอกว่าเก็บไว้ไม่ลบ ไม่มีปุ่มแก้ไข/พักการใช้งาน และมีลิงก์เปิดชีตต้นฉบับ`,
+          (await appears(dialog.getByText('ไม่พบแถวของสมาชิกนี้ในชีตต้นฉบับแล้ว'))) && (await dialog.getByRole('button', { name: /แก้ไข|พักการใช้งาน/ }).count()) === 0 &&
+          (await dialog.getByRole('link', { name: /เปิดชีตต้นฉบับ/ }).getAttribute('href')) === 'https://docs.google.com/mock/sheets')
+        await p.keyboard.press('Escape')
+
+        // กำลังซิงค์ → ล้มเหลว (ข้อมูลเดิมยังอยู่) → อาจไม่ล่าสุด → รายการที่ต้องแก้
+        state.delay = 700
+        state.onRun = (kind, force) => {
+          if (force) state.statuses.sheets = { ...state.statuses.sheets, error: { code: 'rate_limited', message: 'Google จำกัดจำนวนคำขอชั่วคราว ระบบจะเว้นระยะแล้วลองใหม่เอง' }, retryAt: iso(-2) }
+        }
+        const forcedBefore = state.runs.filter((r) => r.force).length
+        await row.getByRole('button', { name: 'อัปเดตจาก Google Sheets' }).click()
+        const busy = (await appears(row.locator('.sync-state', { hasText: 'กำลังซิงค์…' }), 600)) && (await row.getByRole('button', { name: 'อัปเดตจาก Google Sheets' }).isDisabled())
+        await row.locator('.sync-state-error').waitFor()
+        const failedText = await row.locator('.sync-state').innerText()
+        check(`${tag}: กด “อัปเดตจาก Google” แสดง “กำลังซิงค์…” และกดซ้ำไม่ได้ระหว่างรอ แล้วส่งคำสั่งครั้งเดียว`, busy && state.runs.filter((r) => r.force).length === forcedBefore + 1)
+        check(`${tag}: ซิงค์ไม่สำเร็จ: แจ้งเหตุผล บอกว่าข้อมูลอาจยังไม่ล่าสุดพร้อมเวลาสำเร็จครั้งก่อน และรายชื่อเดิมยังอยู่ครบ ไม่กลายเป็นว่าง`,
+          failedText.includes('ซิงค์ไม่สำเร็จ: Google จำกัดจำนวนคำขอ') && failedText.includes('ข้อมูลอาจยังไม่ล่าสุด') && failedText.includes('อัปเดตสำเร็จล่าสุด') &&
+          (await row.locator('.sync-state').getAttribute('role')) === 'alert' && (await p.locator('tbody tr').count()) === 4)
+        await shot(p, `live-sync-members-error-${width}`)
+        state.delay = 0
+        state.onRun = undefined
+        state.statuses.sheets = linkedStatus('sheets', 'MU Esport — ทะเบียนสมาชิก', {
+          lastSuccessAt: iso(12), dataVersion: 2, resource: { access: 'read' },
+          issues: [{ code: 'duplicate_id', where: 'แถว 2 และ 4', message: 'รหัสสมาชิกซ้ำกัน ระบบจึงไม่อัปเดตสมาชิกรหัสนี้จนกว่าจะแก้ให้เหลือแถวเดียว' }, { code: 'invalid_row', where: 'แถว 7', message: 'ไม่มีชื่อ' }],
+        })
+        await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+        await row.locator('.sync-state-stale').waitFor()
+        check(`${tag}: ไม่มีรอบสำเร็จนานเกินกำหนดแสดง “ข้อมูลอาจยังไม่ล่าสุด” และรายการที่ต้องแก้ในต้นฉบับเปิดดูได้พร้อมเลขแถว`,
+          (await row.locator('.sync-state').innerText()).startsWith('ข้อมูลอาจยังไม่ล่าสุด') && (await row.locator('.sync-issues summary').innerText()).includes('มี 2 รายการ') &&
+          (await row.locator('.sync-issues li').first().evaluate((el) => el.textContent)).includes('แถว 2 และ 4'))
+        check(`${tag}: ชีตที่อ่านได้อย่างเดียวแสดงป้าย “อ่านอย่างเดียว” และปุ่มเพิ่มสมาชิกถูกปิด`,
+          (await appears(row.getByText('อ่านอย่างเดียว'))) && (await p.getByRole('button', { name: 'เพิ่มสมาชิก' }).isDisabled()))
+      }
+      await p.context().close()
+    }
+
+    // หลายแท็บในเบราว์เซอร์เดียวกัน: รอบตรวจอัตโนมัติสั่งซิงค์จากแท็บเดียว แท็บอื่นอ่านสถานะแทน
+    {
+      const first = await newPage(1280, 800, actors.b)
+      const context = first.context()
+      const state = { statuses: { sheets: linkedStatus('sheets', 'ทะเบียน'), calendar: linkedStatus('calendar', 'กำหนดการ') } }
+      await mockSync(context, state)
+      await first.goto(`${BASE}/members`)
+      await first.locator('.sync-row[data-sync-kind="sheets"][data-sync-state="ok"]').waitFor()
+      const second = await context.newPage()
+      const third = await context.newPage()
+      for (const tab of [second, third]) {
+        await tab.goto(`${BASE}/calendar`)
+        await tab.locator('.sync-row[data-sync-kind="calendar"][data-sync-state="ok"]').waitFor()
+      }
+      const posts = (kind) => state.runs.filter((r) => r.kind === kind && !r.force).length
+      check('[จำลอง] สามแท็บเปิดพร้อมกัน: รอบอัตโนมัติสั่งซิงค์บริการละหนึ่งครั้ง แท็บอื่นแสดงสถานะเดียวกันโดยไม่สั่งซ้ำ', posts('sheets') === 1 && posts('calendar') === 1, JSON.stringify(state.runs))
+      await context.close()
+    }
+
+    // ---------- ปฏิทิน: กำหนดการซ้ำแก้จากเว็บไม่ได้ และปฏิทินอ่านอย่างเดียว ----------
+    for (const [width, height] of [[1440, 900], [390, 844]]) {
+      const p = await newPage(width, height, actors.a, 1)
+      const today = new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10)
+      const eventOf = (id, title, over = {}) => ({ id, title, allDay: false, start: `${today}T18:00`, end: `${today}T20:00`, location: '', description: '', version: 1, source: 'calendar', recurring: false, editable: true, editNote: '', googleUrl: `https://calendar.google.com/event?eid=${id}`, ...over })
+      const state = { statuses: { calendar: linkedStatus('calendar', 'MU Esport — กำหนดการ') } }
+      await mockSync(p, state)
+      await p.route('**/api/events', (route) => route.fulfill({ json: { events: [
+        eventOf('e1', 'นัดซ้อมทีม'),
+        eventOf('e2', 'ซ้อมประจำสัปดาห์', { recurring: true, editable: false, editNote: 'เป็นกำหนดการซ้ำ การแก้ครั้งเดียวหรือทั้งชุดต้องทำใน Google Calendar เพื่อไม่ให้ชุดกำหนดการเสียหาย' }),
+        eventOf('e3', 'ประชุมในเว็บ', { source: 'local', googleUrl: null }),
+      ] } }))
+      await p.goto(`${BASE}/calendar?event=e2`)
+      const dialog = p.locator('dialog[open]')
+      await dialog.waitFor()
+      check(`[จำลอง] ปฏิทิน ${width}px: กำหนดการซ้ำบอกเหตุผลที่แก้จากเว็บไม่ได้ ไม่มีปุ่มแก้ไข และมีลิงก์เปิดใน Google Calendar`,
+        (await appears(dialog.getByText('แก้จากเว็บไม่ได้: เป็นกำหนดการซ้ำ'))) && (await dialog.getByRole('button', { name: 'แก้ไข' }).count()) === 0 &&
+        (await dialog.getByRole('link', { name: /เปิดใน Google Calendar/ }).getAttribute('href')) === 'https://calendar.google.com/event?eid=e2' &&
+        (await dialog.getByText('Google Calendar · กำหนดการซ้ำ').isVisible()) && (await noOverflow(p)))
+      await shot(p, `live-sync-calendar-recurring-${width}`, false)
+      await p.keyboard.press('Escape')
+      await p.goto(`${BASE}/calendar?event=e3`)
+      await dialog.waitFor()
+      check(`[จำลอง] ปฏิทิน ${width}px: รายการที่ยังไม่ได้ย้ายขึ้น Google บอกว่าอยู่เฉพาะในเว็บ และยังแก้ได้`,
+        (await dialog.getByText('เฉพาะในเว็บ (ยังไม่อยู่ใน Google Calendar)').isVisible()) && (await dialog.getByRole('button', { name: 'แก้ไข' }).isVisible()))
+      await p.keyboard.press('Escape')
+      state.statuses.calendar = linkedStatus('calendar', 'ปฏิทินของคณะ', { resource: { access: 'read', origin: 'selected' }, dataVersion: 1 })
+      await p.goto(`${BASE}/calendar?event=e1`)
+      await dialog.waitFor()
+      check(`[จำลอง] ปฏิทิน ${width}px: ปฏิทินอ่านอย่างเดียว ไม่มีปุ่มแก้ไขในรายละเอียด และปุ่มเพิ่มกำหนดการถูกปิด`,
+        (await dialog.getByRole('button', { name: 'แก้ไข' }).count()) === 0 && (await dialog.getByText('มีสิทธิ์อ่านปฏิทินนี้อย่างเดียว').isVisible()) &&
+        (await p.getByRole('button', { name: 'เพิ่มกำหนดการ' }).first().isDisabled()))
+      await p.context().close()
+    }
+
+    // ---------- ฟอร์ม: คำถาม คำตอบอ่านอย่างเดียว แก้คำถาม conflict และเพิ่มสมาชิกจากคำตอบ ----------
+    const formView = (over = {}) => ({
+      form: { id: 'f1', name: 'สมัครสมาชิก', title: 'สมัครสมาชิก MU Esport', description: 'กรอกให้ครบ', revisionId: 'r1', editUrl: 'https://docs.google.com/forms/d/f1/edit', responderUrl: 'https://docs.google.com/forms/d/e/f1/viewform', isQuiz: false, published: true, acceptingResponses: true, writable: true, mapping: { name: 'q1', nickname: 'q2' }, canConfigure: false, ...over },
+      items: [
+        { itemId: 'i1', kind: 'short_text', title: 'ชื่อ-นามสกุล', description: '', required: true, questions: [{ id: 'q1', label: '' }], options: [], editable: true, editNote: '', removedAt: null },
+        { itemId: 'i2', kind: 'short_text', title: 'ชื่อเล่น', description: '', required: true, questions: [{ id: 'q2', label: '' }], options: [], editable: true, editNote: '', removedAt: null },
+        { itemId: 'i3', kind: 'checkbox', title: 'เกมที่เล่น', description: 'เลือกได้หลายข้อ', required: false, questions: [{ id: 'q3', label: '' }], options: [{ value: 'ROV', isOther: false }, { value: 'Valorant', isOther: false }, { value: '', isOther: true }], editable: true, editNote: '', removedAt: null },
+        { itemId: 'i4', kind: 'grid', title: 'วันที่สะดวก', description: '', required: false, questions: [{ id: 'q4', label: 'จันทร์' }, { id: 'q5', label: 'อังคาร' }], options: [{ value: 'ว่าง', isOther: false }], editable: false, editNote: 'คำถามแบบตาราง แก้ใน Google Forms', removedAt: null },
+        { itemId: 'i9', kind: 'short_text', title: 'เบอร์โทร (คำถามเดิม)', description: '', required: false, questions: [{ id: 'q9', label: '' }], options: [], editable: false, editNote: '', removedAt: '2026-10-02T03:00:00.000Z' },
+      ],
+      responses: [
+        { responseId: 'rA', createTime: '2026-10-05T03:00:00.000Z', lastSubmittedTime: '2026-10-05T04:00:00.000Z', respondentEmail: 'applicant@example.com', answers: { q1: { values: ['อารี ใจดี'], files: [] }, q2: { values: ['อา'], files: [] }, q3: { values: ['ROV', 'Valorant'], files: [] }, q9: { values: ['0812345678'], files: [] } }, sourceState: 'ok', reviewStatus: 'new', memberId: null, candidate: { name: 'อารี ใจดี', nickname: 'อา', contact: '', note: '' }, duplicates: [{ id: 'm1', name: 'อารี ใจดี', nickname: 'อารี' }] },
+        { responseId: 'rB', createTime: '2026-10-04T03:00:00.000Z', lastSubmittedTime: '2026-10-04T03:00:00.000Z', respondentEmail: '', answers: { q1: { values: ['บุญมี'], files: [] } }, sourceState: 'missing', reviewStatus: 'imported', memberId: 'm2', candidate: { name: 'บุญมี', nickname: '', contact: '', note: '' }, duplicates: [] },
+      ],
+      responseCount: 2,
+    })
+    for (const [who, actor, width, height, theme] of [['ทีมงาน', actors.a, 1440, 900, 'light'], ['ทีมงาน', actors.a, 390, 844, 'dark'], ['ผู้ดูแล', actors.admin, 768, 1024, 'light']]) {
+      const tag = `[จำลอง] ฟอร์ม (${who}) ${width}px ธีม${theme === 'dark' ? 'มืด' : 'สว่าง'}`
+      const p = await newPage(width, height, actor, actor === actors.a ? 1 : 0)
+      await themed(p, theme)
+      const state = { statuses: { forms: linkedStatus('forms', 'สมัครสมาชิก') } }
+      let view = formView({ canConfigure: who === 'ผู้ดูแล' })
+      const sent = []
+      await mockSync(p, state)
+      await p.route('**/api/forms', (route) => route.fulfill({ json: view }))
+      await p.route('**/api/forms/**', async (route) => {
+        const request = route.request()
+        const path = new URL(request.url()).pathname
+        sent.push({ method: request.method(), path, body: request.postDataJSON() })
+        if (path.endsWith('/items/i3') && request.postDataJSON().expectedRevision === 'r1' && sent.filter((s) => s.path.endsWith('/items/i3')).length === 1) {
+          // ครั้งแรก: ฟอร์มถูกแก้ที่ Google ไปก่อน
+          view = formView({ canConfigure: who === 'ผู้ดูแล', revisionId: 'r2' })
+          view.items[2] = { ...view.items[2], title: 'เกมที่เล่น (แก้ที่ Google)' }
+          return route.fulfill({ status: 409, json: { error: 'revision_conflict', message: 'ฟอร์มถูกแก้ไขใน Google Forms หลังจากที่คุณเปิด ยังไม่ได้บันทึกสิ่งที่คุณแก้ หน้านี้แสดงฉบับล่าสุดแล้ว ตรวจก่อนบันทึกอีกครั้ง' } })
+        }
+        if (path.endsWith('/import')) {
+          view.responses[0] = { ...view.responses[0], reviewStatus: 'imported', memberId: 'm9', duplicates: [] }
+          return route.fulfill({ status: 201, json: { ...view, memberId: 'm9' } })
+        }
+        if (path.endsWith('/items/i3')) {
+          view.items[2] = { ...view.items[2], title: request.postDataJSON().title, options: [...request.postDataJSON().options.map((value) => ({ value, isOther: false })), { value: '', isOther: true }] }
+          view.form.revisionId = 'r3'
+        }
+        return route.fulfill({ json: { ...view, verified: true } })
+      })
+      await p.goto(`${BASE}/forms`)
+      await p.locator('.form-item').first().waitFor()
+      check(`${tag}: เมนูมี “ฟอร์ม” และหน้าแสดงหัวเรื่อง คำถามตามลำดับ ชนิด ตัวเลือก และเหตุผลของคำถามที่แก้จากเว็บไม่ได้`,
+        (await p.locator('.form-item').count()) === 4 && (await p.locator('.form-item').nth(2).innerText()).includes('ตัวเลือก: ROV · Valorant · อื่น ๆ (ผู้ตอบพิมพ์เอง)') &&
+        (await p.locator('.form-item').nth(3).innerText()).includes('คำถามแบบตาราง แก้ใน Google Forms') && (await p.locator('.form-item').nth(3).getByRole('button').count()) === 0 &&
+        (await p.getByRole('heading', { name: 'สมัครสมาชิก MU Esport' }).isVisible()) && (await noOverflow(p)) &&
+        (width < 1024 || (await p.locator('.sidebar').getByRole('link', { name: 'ฟอร์ม', exact: true }).getAttribute('aria-current')) === 'page'))
+      check(`${tag}: คำตอบที่ได้รับแสดงสถานะการตรวจ คำตอบที่ถูกลบที่ Google และคำเตือนอาจซ้ำ; ปุ่มจับคู่คำถามมีเฉพาะผู้ดูแล`,
+        (await p.locator('.response-row').count()) === 2 && (await p.locator('.response-row').first().innerText()).includes('อาจซ้ำกับสมาชิกเดิม') &&
+        (await p.locator('.response-row').nth(1).innerText()).includes('ถูกลบที่ Google Forms แล้ว') && (await p.locator('.response-row').nth(1).innerText()).includes('เพิ่มเป็นสมาชิกแล้ว') &&
+        (await p.getByRole('button', { name: 'จับคู่คำถามกับทะเบียนสมาชิก' }).count()) === (who === 'ผู้ดูแล' ? 1 : 0))
+      if (width < 1024) check(`${tag}: ปุ่มทั้งหมดในหน้าสูง ≥44px`, (await tap(p, 'main .button')).every((h) => h >= 44), JSON.stringify(await tap(p, 'main .button')))
+      await shot(p, `live-forms-${width}${theme === 'dark' ? '-dark' : ''}`)
+
+      // คำตอบต้นฉบับ: อ่านอย่างเดียว จับคู่กับคำถามด้วย ID รวมคำถามที่ถูกลบ
+      const viewButton = p.locator('.response-row').first().getByRole('button', { name: 'ดูคำตอบ' })
+      await viewButton.click()
+      const dialog = p.locator('dialog[open]')
+      const answers = await dialog.locator('.answer-list').innerText()
+      check(`${tag}: ดูคำตอบต้นฉบับ: ไม่มีช่องกรอกหรือปุ่มแก้/ส่งคำตอบ คำตอบของคำถามที่ถูกลบยังอ่านได้พร้อมป้าย และปิดแล้ว focus กลับปุ่มเดิม`,
+        (await dialog.locator('input, textarea, select, [contenteditable]').count()) === 0 && (await dialog.getByRole('button').count()) === 2 &&
+        answers.includes('เบอร์โทร (คำถามเดิม)') && answers.includes('คำถามถูกลบแล้ว') && answers.includes('0812345678') && answers.includes('ROV\nValorant') && (await noOverflow(p)))
+      await p.keyboard.press('Escape')
+      await gone(dialog)
+      check(`${tag}: ปิดกล่องคำตอบแล้ว focus กลับไปที่ปุ่ม “ดูคำตอบ” เดิม`, await viewButton.evaluate((el) => el === document.activeElement))
+
+      // แก้คำถาม: conflict แล้วเลือกบันทึกค่าที่กรอกทับฉบับล่าสุด
+      await p.getByRole('button', { name: 'แก้ไขคำถาม เกมที่เล่น' }).click()
+      await p.locator('#question-title').fill('เกมที่อยากแข่ง')
+      await p.getByRole('button', { name: 'เพิ่มตัวเลือก' }).click()
+      await p.locator('#question-option-2').fill('FC Online')
+      await p.getByRole('button', { name: 'บันทึกไป Google Forms' }).click()
+      const alert = dialog.locator('.form-alert')
+      check(`${tag}: แก้คำถามจากฉบับเก่า: แจ้ง conflict แสดงค่าล่าสุดจาก Google ค่าที่กรอกยังอยู่ และปุ่มบันทึกปกติถูกปิดจนกว่าจะเลือก`,
+        (await appears(alert.getByText('ฟอร์มถูกแก้ไขใน Google Forms'))) && (await appears(alert.getByText('เกมที่เล่น (แก้ที่ Google)'))) &&
+        (await p.locator('#question-title').inputValue()) === 'เกมที่อยากแข่ง' && (await p.locator('#question-option-2').inputValue()) === 'FC Online' &&
+        (await dialog.getByRole('button', { name: 'บันทึกไป Google Forms' }).isDisabled()) && (await dialog.getByText('ตัวเลือก “อื่น ๆ (ผู้ตอบพิมพ์เอง)” ของฟอร์มนี้ยังอยู่ตามเดิม').isVisible()))
+      await shot(p, `live-forms-conflict-${width}${theme === 'dark' ? '-dark' : ''}`, false)
+      await alert.getByRole('button', { name: 'บันทึกค่าที่ฉันกรอกทับฉบับล่าสุด' }).click()
+      await gone(dialog)
+      const saved = sent.filter((s) => s.path.endsWith('/items/i3'))
+      check(`${tag}: บันทึกครั้งที่สองอ้าง revision ล่าสุด ส่งเฉพาะข้อความ บังคับตอบ และตัวเลือก แล้วหน้าแสดงผลที่ Google ยืนยัน`,
+        saved.length === 2 && saved[1].body.expectedRevision === 'r2' && JSON.stringify(saved[1].body.options) === JSON.stringify(['ROV', 'Valorant', 'FC Online']) &&
+        (await appears(p.locator('.form-item', { hasText: 'เกมที่อยากแข่ง' }))) && (await appears(p.locator('.toast', { hasText: 'บันทึกคำถามไป Google Forms แล้ว' }))))
+
+      // ตรวจก่อนเพิ่มเป็นสมาชิก
+      await p.getByRole('button', { name: 'ตรวจและเพิ่มเป็นสมาชิก' }).click()
+      check(`${tag}: ตรวจก่อนเพิ่มสมาชิก: เติมค่าตามการจับคู่ เตือนรายการที่อาจซ้ำ และบอกว่าไม่ให้สิทธิ์เข้าหลังบ้าน`,
+        (await p.locator('#import-name').inputValue()) === 'อารี ใจดี' && (await p.locator('#import-nickname').inputValue()) === 'อา' &&
+        (await appears(dialog.getByText('อาจซ้ำกับสมาชิกที่มีอยู่'))) && (await dialog.getByText('การเพิ่มนี้ไม่ให้สิทธิ์เข้าหลังบ้าน').isVisible()) && (await noOverflow(p)))
+      await p.locator('#import-name').fill('')
+      await p.getByRole('button', { name: 'เพิ่มเป็นสมาชิก', exact: true }).click()
+      const blocked = (await appears(p.locator('#import-name-error'))) && !sent.some((s) => s.path.endsWith('/import'))
+      await p.locator('#import-name').fill('อารี ใจดี (รุ่น 69)')
+      await p.getByRole('button', { name: 'เพิ่มเป็นสมาชิก', exact: true }).click()
+      await gone(dialog)
+      const imported = sent.find((s) => s.path.endsWith('/import'))
+      check(`${tag}: ชื่อว่างถูกกันไว้ก่อนส่ง แล้วเพิ่มด้วยค่าที่ทีมงานปรับ (ไม่มีบทบาทหรือสิทธิ์ในคำขอ) และรายการคำตอบเปลี่ยนเป็น “เพิ่มเป็นสมาชิกแล้ว”`,
+        blocked && imported?.path === '/api/forms/responses/rA/import' && JSON.stringify(Object.keys(imported.body).sort()) === JSON.stringify(['contact', 'name', 'nickname', 'note']) &&
+        imported.body.name === 'อารี ใจดี (รุ่น 69)' && (await appears(p.locator('.response-row').first().getByText('เพิ่มเป็นสมาชิกแล้ว'))))
+      await p.context().close()
+    }
+    {
+      // ยังไม่ได้เชื่อมฟอร์ม: บอกตามจริง ไม่มีรายการปลอม
+      for (const [who, actor] of [['ทีมงาน', actors.a], ['ผู้ดูแล', actors.admin]]) {
+        const p = await newPage(1280, 800, actor, actor === actors.a ? 1 : 0)
+        await p.goto(`${BASE}/forms`)
+        check(`[จริง] ฟอร์ม (${who}) ยังไม่ได้เชื่อม: บอกว่ายังไม่ได้เชื่อม Google Forms ไม่มีคำถามหรือคำตอบแสดง และทางไปตั้งค่ามีเฉพาะผู้ดูแล`,
+          (await appears(p.getByText('ยังไม่ได้เชื่อม Google Forms').first())) && (await p.locator('.form-item, .response-row').count()) === 0 &&
+          (await p.getByRole('link', { name: 'ไปตั้งค่าที่หน้าแหล่งข้อมูล' }).count()) === (who === 'ผู้ดูแล' ? 1 : 0))
+        await p.context().close()
+      }
+    }
+
+    // ---------- แหล่งข้อมูล: พื้นที่ข้อมูลชมรม ----------
+    const sourcesConnected = {
+      google: { status: 'connected', expectedEmail: 'muesport2567@gmail.com', email: 'muesport2567@gmail.com', connectedAt: '2026-10-01T03:00:00.000Z', lastCheckedAt: iso(3), lastError: null, missingConfig: [] },
+      resources: [{ id: 'docs', status: 'ready' }, { id: 'sheets', status: 'not_selected' }, { id: 'calendar', status: 'not_selected' }, { id: 'forms', status: 'not_selected' }, { id: 'excel', status: 'disabled' }],
+    }
+    const setupInfo = (over = {}) => ({
+      scopes: { driveFile: true, calendarCreated: false, calendarExisting: false },
+      picker: { configured: false, missing: ['GOOGLE_PICKER_API_KEY', 'GOOGLE_CLOUD_PROJECT_NUMBER'], apiKey: '', appId: '', clientId: 'mock-client' },
+      local: { members: 4, events: 2 }, operations: [], sync: [], ...over,
+    })
+    for (const [width, height, theme] of [[1440, 900, 'light'], [390, 844, 'dark']]) {
+      const tag = `[จำลอง] ตั้งค่าพื้นที่ข้อมูล ${width}px ธีม${theme === 'dark' ? 'มืด' : 'สว่าง'}`
+      const p = await newPage(width, height, actors.admin)
+      await themed(p, theme)
+      const state = { statuses: {} }
+      const creates = []
+      let info = setupInfo()
+      await mockSync(p, state)
+      await p.route('**/api/sources', (route) => route.fulfill({ json: sourcesConnected }))
+      await p.route('**/api/setup', (route) => route.fulfill({ json: info }))
+      await p.route('**/api/setup/create', async (route) => {
+        const request = route.request()
+        const body = request.postDataJSON()
+        creates.push({ kind: body.kind, name: body.name, key: request.headers()['idempotency-key'], confirm: body.confirmCreate === true })
+        // ฟอร์ม: ครั้งแรกคำตอบของ Google หาย
+        if (body.kind === 'forms' && creates.filter((c) => c.kind === 'forms').length === 1) {
+          return route.fulfill({ status: 502, json: { error: 'operation_create_unknown', message: 'ไม่ทราบว่า Google สร้างฟอร์มแล้วหรือยัง ระบบจะไม่สร้างใหม่เอง กด “ลองอีกครั้ง” เพื่อให้ระบบค้นหารายการเดิม', canConfirmCreate: false } })
+        }
+        state.statuses[body.kind] = linkedStatus(body.kind, body.name)
+        return route.fulfill({ status: 201, json: { status: state.statuses[body.kind] } })
+      })
+      await p.goto(`${BASE}/sources`)
+      const space = p.locator('.data-space')
+      await space.locator('.resource-state').nth(2).waitFor()
+      // ปุ่มขอสิทธิ์และคำอธิบาย Picker มาจาก /api/setup ซึ่งโหลดแยกจากสถานะซิงค์: รอให้ส่วนนี้แสดงก่อนอ่านข้อความ
+      await space.getByText('GOOGLE_PICKER_API_KEY').waitFor()
+      const spaceText = await space.innerText()
+      check(`${tag}: แสดงสถานะจริงของชีต ปฏิทิน ฟอร์ม (ยังไม่ได้เชื่อม) Excel ยังไม่เปิดใช้ และอธิบายสิ่งที่ยังขาดของ Picker โดยไม่มีช่องวางลิงก์`,
+        (await space.locator('.resource-row').count()) === 3 && (spaceText.match(/ยังไม่ได้เชื่อม/g) ?? []).length === 3 && (await space.locator('.badge-active, .resource-state a').count()) === 0 &&
+        spaceText.includes('GOOGLE_PICKER_API_KEY') && (await space.getByRole('button', { name: 'เลือกชีตที่มีอยู่' }).isDisabled()) &&
+        (await space.locator('input[type="url"], input[type="text"]').count()) === 0 && (await p.locator('.source-card', { hasText: 'Excel' }).innerText()).includes('ยังไม่เปิดใช้') &&
+        (await p.locator('.source-card').count()) === 2 && (await noOverflow(p)))
+      check(`${tag}: ปฏิทินต้องขอสิทธิ์แยก มีปุ่มขอสิทธิ์สองทางพร้อมคำอธิบายความกว้างของสิทธิ์`,
+        (await space.getByRole('button', { name: 'ขอสิทธิ์เพื่อเลือกปฏิทินที่มีอยู่' }).isVisible()) && (await space.getByRole('button', { name: 'ขอสิทธิ์เพื่อสร้างปฏิทินใหม่' }).isVisible()) &&
+        spaceText.includes('Google จะแสดงหน้าขออนุญาตให้ตรวจก่อน'))
+      await shot(p, `live-setup-space-${width}${theme === 'dark' ? '-dark' : ''}`)
+
+      const opener = space.getByRole('button', { name: 'สร้างชุดข้อมูลชมรม' })
+      await opener.click()
+      const dialog = p.locator('dialog[open]')
+      await dialog.locator('#create-name-sheets').waitFor()
+      check(`${tag}: “สร้างชุดข้อมูลชมรม”: เสนอชื่อที่แก้ได้ บอกสิ่งที่จะสร้างและข้อมูลเดิม ปฏิทินที่ยังไม่มีสิทธิ์ติ๊กไม่ได้ และยังไม่มีคำสั่งสร้างจนกว่าจะยืนยัน`,
+        (await dialog.locator('#create-name-sheets').inputValue()) === 'MU Esport — ทะเบียนสมาชิก' && (await dialog.locator('#create-name-forms').inputValue()) === 'MU Esport — สมัครสมาชิก' &&
+        (await dialog.locator('[data-create="calendar"] input[type="checkbox"]').isDisabled()) && (await dialog.getByText('สมาชิก 4 คน และกำหนดการ 2 รายการ').isVisible()) &&
+        (await dialog.getByText('ระบบจับคู่แถวด้วยคอลัมน์รหัสสมาชิก').isVisible()) && creates.length === 0 && (await noOverflow(p)))
+      await shot(p, `live-setup-create-${width}${theme === 'dark' ? '-dark' : ''}`, false)
+      await dialog.locator('#create-name-sheets').fill('ทะเบียนสมาชิกชมรม 2569')
+      await dialog.getByRole('button', { name: 'สร้าง 2 รายการในบัญชีชมรม' }).click()
+      await dialog.locator('[data-create="forms"] .form-alert').waitFor()
+      check(`${tag}: ชีตสร้างและเชื่อมแล้ว ส่วนฟอร์มที่ไม่ทราบผลแสดงแยกจากล้มเหลว และบอกว่าระบบจะไม่สร้างซ้ำเอง`,
+        (await dialog.locator('[data-create="sheets"] .create-result-ok').isVisible()) && (await dialog.locator('[data-create="forms"] .form-alert').innerText()).includes('ไม่ทราบว่า Google สร้างฟอร์มแล้วหรือยัง') &&
+        creates.length === 2 && creates[0].name === 'ทะเบียนสมาชิกชมรม 2569')
+      await dialog.getByRole('button', { name: 'ลองรายการที่ยังไม่เสร็จอีกครั้ง' }).click()
+      await dialog.getByRole('button', { name: 'เสร็จ' }).waitFor()
+      const formCreates = creates.filter((c) => c.kind === 'forms')
+      check(`${tag}: ลองอีกครั้งใช้ operation key เดิมของฟอร์ม (ไม่เริ่มงานสร้างใหม่) และไม่ส่งคำสั่งสร้างชีตซ้ำ`,
+        formCreates.length === 2 && formCreates[0].key === formCreates[1].key && /^[A-Za-z0-9_-]{16,64}$/.test(formCreates[0].key) && creates.filter((c) => c.kind === 'sheets').length === 1)
+      info = setupInfo({ local: { members: 4, events: 2 } })
+      await dialog.getByRole('button', { name: 'เสร็จ' }).click()
+      await gone(dialog)
+      await space.locator('[data-resource="sheets"] .badge-active').waitFor()
+      check(`${tag}: หลังสร้าง: ชีตและฟอร์มแสดง “เชื่อมแล้ว” พร้อมลิงก์เปิดต้นฉบับ มีปุ่มย้ายสมาชิกเดิมขึ้น Google และปุ่มยกเลิกการเชื่อม`,
+        (await space.locator('[data-resource="sheets"] a').getAttribute('href')) === 'https://docs.google.com/mock/sheets' &&
+        (await space.locator('[data-resource="sheets"]').getByRole('button', { name: 'ย้ายสมาชิกในเว็บ 4 รายการขึ้น Google' }).isVisible()) &&
+        (await space.locator('[data-resource="forms"]').getByRole('button', { name: 'ยกเลิกการเชื่อม' }).isVisible()) &&
+        (await space.locator('[data-resource="calendar"]').innerText()).includes('ยังไม่ได้เชื่อม') && (await noOverflow(p)))
+      await shot(p, `live-setup-linked-${width}${theme === 'dark' ? '-dark' : ''}`)
+      await space.locator('[data-resource="sheets"]').getByRole('button', { name: 'ยกเลิกการเชื่อม' }).click()
+      check(`${tag}: ยกเลิกการเชื่อม: อธิบายก่อนยืนยันว่าต้นฉบับใน Google ไม่ถูกลบและรายชื่อในเว็บยังอยู่`,
+        (await appears(dialog.getByText('ไม่ถูกลบหรือแก้'))) && (await dialog.getByText('รายชื่อสมาชิกที่แสดงอยู่ยังอยู่ในเว็บครบ').isVisible()) && (await noOverflow(p)))
+      await p.keyboard.press('Escape')
+      await p.context().close()
+    }
+
+    // เลือกชีตที่มีอยู่: หน้าต่างเลือกไฟล์ของ Google ถูกแทนด้วยสคริปต์จำลองในเบราว์เซอร์ทดสอบ (ไม่ได้เปิด Picker จริง)
+    {
+      const p = await newPage(1280, 900, actors.admin)
+      const state = { statuses: {} }
+      const links = []
+      await mockSync(p, state)
+      await p.route('**/api/sources', (route) => route.fulfill({ json: sourcesConnected }))
+      await p.route('**/api/setup', (route) => route.fulfill({ json: setupInfo({ picker: { configured: true, missing: [], apiKey: 'mock-key', appId: '123', clientId: 'mock-client' } }) }))
+      await p.route('https://accounts.google.com/gsi/client', (route) => route.fulfill({ contentType: 'text/javascript', body: 'window.google = window.google || {}; google.accounts = { oauth2: { initTokenClient: (c) => ({ requestAccessToken: () => { window.__pickerHint = c.hint; window.__pickerScope = c.scope; c.callback({ access_token: "browser-only-token" }) } }) } };' }))
+      await p.route('https://apis.google.com/js/api.js', (route) => route.fulfill({ contentType: 'text/javascript', body: `window.gapi = { load: (name, o) => { window.google = window.google || {}; const B = function () {}; for (const m of ['addView','setOAuthToken','setDeveloperKey','setAppId','setLocale']) B.prototype[m] = function () { return this }; B.prototype.setCallback = function (cb) { this.cb = cb; return this }; B.prototype.build = function () { return { setVisible: () => this.cb({ action: 'picked', docs: [{ id: 'picked-sheet-id-000001', name: 'ชีตเดิมของชมรม' }] }) } }; const V = function () {}; for (const m of ['setMimeTypes','setIncludeFolders','setSelectFolderEnabled','setMode']) V.prototype[m] = function () { return this }; google.picker = { PickerBuilder: B, DocsView: V, DocsViewMode: { LIST: 'list' }, Action: { PICKED: 'picked', CANCEL: 'cancel' } }; o.callback() } };` }))
+      await p.route('**/api/setup/preview', (route) => {
+        const body = route.request().postDataJSON()
+        const columns = body.columns ?? { name: 'ชื่อ-นามสกุล', nickname: 'ชื่อเล่น' }
+        return route.fulfill({ json: {
+          kind: 'sheets', resourceId: body.resourceId, name: 'ชีตเดิมของชมรม', writable: true, tabs: [{ sheetId: 0, title: 'รายชื่อ' }, { sheetId: 7, title: 'เก่า' }], sheetId: body.sheetId ?? 0, headerRow: body.headerRow ?? 1,
+          headers: ['ลำดับ', 'ชื่อ-นามสกุล', 'ชื่อเล่น', 'เบอร์'], columns,
+          stats: { rows: 12, withId: 0, withoutId: 12, invalid: 1, duplicateIds: 0, matchedLocal: 0, newFromSheet: 12, localOnly: 4 }, problem: null,
+          issues: [{ code: 'invalid_row', where: 'แถว 9', message: 'ไม่มีชื่อ' }],
+        } })
+      })
+      await p.route('**/api/setup/link', (route) => {
+        links.push(route.request().postDataJSON())
+        state.statuses.sheets = linkedStatus('sheets', 'ชีตเดิมของชมรม', { resource: { origin: 'selected' } })
+        return route.fulfill({ status: 201, json: { status: state.statuses.sheets } })
+      })
+      await p.goto(`${BASE}/sources`)
+      await p.locator('.data-space').getByRole('button', { name: 'เลือกชีตที่มีอยู่' }).click()
+      const dialog = p.locator('dialog[open]')
+      await dialog.locator('#link-col-name').waitFor()
+      const picker = await p.evaluate(() => ({ hint: window.__pickerHint, scope: window.__pickerScope }))
+      check('[จำลอง Picker] เลือกชีตที่มีอยู่: ขอสิทธิ์เฉพาะ drive.file โดยแนะบัญชีชมรม แล้วแสดง preview จาก server: แท็บ แถวหัวตาราง การจับคู่ที่เสนอ และจำนวนก่อนเชื่อม',
+        picker.hint === 'muesport2567@gmail.com' && picker.scope === 'https://www.googleapis.com/auth/drive.file' && (await dialog.locator('#link-col-name').inputValue()) === 'ชื่อ-นามสกุล' &&
+        (await dialog.locator('#link-tab option').count()) === 2 && (await dialog.getByText('แถวข้อมูลในชีต 12 แถว').isVisible()) && (await dialog.getByText('สมาชิกในเว็บที่ยังไม่อยู่ในชีต 4 คน').isVisible()) &&
+        (await dialog.locator('.sync-issues summary').innerText()).includes('(1)'))
+      check('[จำลอง Picker] ชีตไม่มีคอลัมน์รหัส: อธิบายเหตุผล และปุ่มเชื่อมถูกปิดจนกว่าผู้ดูแลจะยืนยันให้เพิ่มคอลัมน์รหัส',
+        (await dialog.getByText('ชีตนี้ยังไม่มีคอลัมน์รหัสสมาชิก').isVisible()) && (await dialog.getByRole('button', { name: 'เชื่อมชีตนี้' }).isDisabled()) && links.length === 0 && (await noOverflow(p)))
+      await shot(p, 'live-setup-sheet-preview-1280', false)
+      await dialog.locator('#link-col-contact').selectOption('เบอร์')
+      await dialog.getByLabel(/ให้ระบบเพิ่มคอลัมน์ “รหัสสมาชิก”/).check()
+      await dialog.getByRole('button', { name: 'เชื่อมชีตนี้' }).click()
+      await gone(dialog)
+      check('[จำลอง Picker] ยืนยันแล้วส่งการจับคู่ตามหัวคอลัมน์ (ไม่ใช่เลขคอลัมน์) พร้อมคำยืนยันเพิ่มคอลัมน์รหัส และหน้าแสดงว่าเชื่อมแล้วแบบ “เลือกจากที่มีอยู่”',
+        links.length === 1 && links[0].resourceId === 'picked-sheet-id-000001' && links[0].addIdColumn === true &&
+        JSON.stringify(links[0].columns) === JSON.stringify({ name: 'ชื่อ-นามสกุล', nickname: 'ชื่อเล่น', contact: 'เบอร์' }) &&
+        (await appears(p.locator('[data-resource="sheets"]', { hasText: 'เลือกจากที่มีอยู่' }))))
+      await p.context().close()
+    }
+    {
+      // ทีมงานทั่วไป: เห็นสถานะ แต่ไม่มีปุ่มตั้งค่า และ API ตั้งค่าตอบ 403 จาก Worker จริง
+      const p = await newPage(390, 844, actors.a, 1)
+      await p.route('**/api/sources', (route) => route.fulfill({ json: sourcesConnected }))
+      await p.goto(`${BASE}/sources`)
+      const space = p.locator('.data-space')
+      await space.locator('.resource-state').nth(2).waitFor()
+      const denied = await Promise.all([apiAs(p, '/api/setup'), apiAs(p, '/api/setup/create', { method: 'POST', key: 'ui-check-staff-key-0001', body: { kind: 'sheets', name: 'x' } }), apiAs(p, '/api/setup/link/sheets', { method: 'DELETE' })])
+      check('[จริง] ทีมงานที่หน้าแหล่งข้อมูล 390px: เห็นสถานะแหล่งข้อมูล ไม่มีปุ่มสร้าง/เลือก/ยกเลิก และ API ตั้งค่าตอบ 403',
+        (await space.getByRole('button').count()) === 0 && (await space.getByText('ทำได้เฉพาะผู้ดูแลระบบ').isVisible()) && denied.every((r) => r.status === 403) && (await noOverflow(p)), JSON.stringify(denied.map((r) => r.status)))
+      await p.context().close()
+    }
+
+    // ---------- เอกสาร: มีฉบับใหม่ใน Google ระหว่างเปิดหน้า ----------
+    for (const [width, height, theme] of [[1440, 900, 'light'], [390, 844, 'dark']]) {
+      const tag = `[จำลอง] เอกสาร ฉบับใหม่ใน Google ${width}px ธีม${theme === 'dark' ? 'มืด' : 'สว่าง'}`
+      const p = await newPage(width, height, actors.a, 1)
+      await themed(p, theme)
+      const remote = { revision: 1, text: 'ฉบับที่ 1' }
+      const info = { id: 'doc-1', title: 'วาระประชุม', status: 'ok', statusDetail: '', googleUrl: 'https://docs.google.com/document/d/x/edit', createdAt: iso(600), updatedAt: iso(60), lastCheckedAt: iso(1), createdByName: 'ทีมงาน เอ', updatedByName: 'ทีมงาน เอ', origin: 'created' }
+      let reads = 0
+      await p.route('**/api/documents/doc-1', (route) => (reads++, route.fulfill({ json: { document: info, content: { text: remote.text, revisionId: `rev-${remote.revision}`, editable: true, reasons: [] } } })))
+      await p.route('**/api/documents/doc-1/revision', (route) => route.fulfill({ json: { revisionId: `rev-${remote.revision}`, title: info.title } }))
+      await p.goto(`${BASE}/documents/doc-1`)
+      const editor = p.locator('#document-text')
+      await editor.waitFor()
+      const poll = () => p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))
+
+      // ไม่มีร่าง: โหลดฉบับใหม่ให้เอง
+      Object.assign(remote, { revision: 2, text: 'ฉบับที่ 2 จาก Google' })
+      await poll()
+      check(`${tag}: ไม่มีร่างค้าง → เว็บโหลดฉบับใหม่จาก Google ให้เองและบอกเวลา`,
+        (await appears(p.locator('.editor-status', { hasText: 'โหลดฉบับใหม่จาก Google Docs ให้แล้ว' }))) && (await editor.inputValue()) === 'ฉบับที่ 2 จาก Google')
+
+      // มีร่าง: ไม่ทับ แสดงทางเลือก
+      await editor.fill('ร่างของฉันที่ยังไม่บันทึก')
+      await editor.focus()
+      const readsBefore = reads
+      Object.assign(remote, { revision: 3, text: 'ฉบับที่ 3 จาก Google' })
+      await poll()
+      const banner = p.locator('.remote-card')
+      check(`${tag}: มีร่างค้าง → แจ้ง “มีฉบับใหม่ใน Google Docs” โดยไม่โหลดทับ: ร่างและ focus ยังอยู่ และยังไม่มีการดึงเนื้อหา`,
+        (await appears(banner)) && (await editor.inputValue()) === 'ร่างของฉันที่ยังไม่บันทึก' && (await p.evaluate(() => document.activeElement?.id)) === 'document-text' && reads === readsBefore &&
+        (await banner.getByRole('button').count()) === 3 && (await noOverflow(p)))
+      if (width < 1024) check(`${tag}: ปุ่มทางเลือกสูง ≥44px`, (await tap(p, '.remote-card .button')).every((h) => h >= 44))
+      await shot(p, `live-doc-remote-${width}${theme === 'dark' ? '-dark' : ''}`)
+
+      await banner.getByRole('button', { name: 'เก็บร่างของฉันไว้ก่อน' }).click()
+      await poll()
+      await p.waitForTimeout(300)
+      const kept = (await banner.count()) === 0 && (await editor.inputValue()) === 'ร่างของฉันที่ยังไม่บันทึก'
+      Object.assign(remote, { revision: 4, text: 'ฉบับที่ 4 จาก Google' })
+      await poll()
+      check(`${tag}: “เก็บร่างของฉันไว้ก่อน” ไม่เตือนซ้ำสำหรับฉบับเดิม แต่เตือนอีกเมื่อ Google มีฉบับใหม่กว่า`, kept && (await appears(banner)))
+      await banner.getByRole('button', { name: 'เปรียบเทียบกับฉบับล่าสุด' }).click()
+      check(`${tag}: “เปรียบเทียบกับฉบับล่าสุด” แสดงฉบับจาก Google ข้างร่าง ร่างยังอยู่ และมีทางเลือกใช้ฉบับล่าสุดหรือบันทึกทับ`,
+        (await appears(p.locator('#document-latest'))) && (await p.locator('#document-latest').inputValue()) === 'ฉบับที่ 4 จาก Google' && (await editor.inputValue()) === 'ร่างของฉันที่ยังไม่บันทึก' &&
+        (await p.getByRole('button', { name: 'ใช้ฉบับล่าสุด (ทิ้งที่ฉันแก้)' }).isVisible()) && (await p.getByRole('button', { name: 'บันทึกฉบับของฉันทับฉบับล่าสุด' }).isVisible()) && (await noOverflow(p)))
+      await p.getByRole('button', { name: 'ใช้ฉบับล่าสุด (ทิ้งที่ฉันแก้)' }).click()
+      await p.getByRole('button', { name: 'ทิ้งที่ฉันแก้', exact: true }).click()
+      check(`${tag}: ใช้ฉบับล่าสุดต้องยืนยันก่อนทิ้งร่าง แล้วช่องเนื้อหาเป็นฉบับจาก Google`, (await editor.inputValue()) === 'ฉบับที่ 4 จาก Google')
+      await p.context().close()
+    }
+    ignoreErrorsSince(errorsBeforeSync)
+  }
+
   // ================= 9. ออกจากระบบ =================
   const leaving = await newPage(1440, 900, actors.b)
   await leaving.goto(`${BASE}/members`)
   await leaving.locator('.topbar .account').getByRole('button', { name: 'ออกจากระบบ' }).click()
   check('[จริง] ออกจากระบบ: กลับหน้าเข้าสู่ระบบ และ session เดิมใช้ไม่ได้',
-    (await appears(leaving.getByText('ออกจากระบบแล้ว'))) && (await apiAs(leaving, '/api/members')).status === 401)
+    (await appears(leaving.locator('p.notice').getByText('ออกจากระบบแล้ว', { exact: true }))) && (await apiAs(leaving, '/api/members')).status === 401)
   await leaving.goBack()
   check('[จริง] หลังออกจากระบบ กดย้อนกลับไม่เห็นข้อมูลสมาชิก', (await appears(leaving.getByRole('heading', { name: 'เข้าสู่ระบบ' }))) && (await leaving.locator('tbody tr').count()) === 0)
   await leaving.context().close()
@@ -1720,6 +2295,7 @@ try {
   if (webkitBrowser) {
     browser = webkitBrowser
     consoleErrors.length = 0
+    await loadSignalCheck(webkitBrowser, 'WebKit')
     await sweep(webkitBrowser, 'WebKit', [[1440, 900, '1440'], [390, 844, '390'], [320, 568, '320'], [844, 390, 'landscape-844x390']], false)
     const w = await newPage(390, 844, actors.a, 1, webkitBrowser)
     await w.goto(`${BASE}/members`)

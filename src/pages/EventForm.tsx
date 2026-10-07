@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { Field, fieldAria } from '../components/ui'
 import { createKeyTracker } from '../api/client'
-import { hasCode, messageOf } from '../data/errors'
+import { hasCode, isUnconfirmed, messageOf } from '../data/errors'
 import { useStore } from '../data/store'
 import type { ClubEvent, ClubEventInput } from '../data/types'
 import { dateOf, formatEventRange, timeOf } from '../lib/datetime'
@@ -144,6 +144,10 @@ export function EventForm({ event, defaultDate, onClose, onSaved }: Props) {
       if (hasCode(error, 'version_conflict')) {
         setConflict((error as { data: { current: ClubEvent } }).data.current)
         setSubmitError(messageOf(error, ''))
+      } else if (isUnconfirmed(error)) {
+        // Google อาจบันทึกไปแล้ว: ไม่บอกว่าสำเร็จหรือไม่สำเร็จ ดึงค่าล่าสุดมาให้ตรวจในปฏิทินด้านหลัง
+        refresh().catch(() => undefined)
+        setSubmitError(`${messageOf(error, '')} ข้อมูลที่กรอกยังอยู่ครบในฟอร์มนี้`)
       } else {
         setSubmitError(
           `บันทึกไม่สำเร็จ: ${messageOf(error, 'ระบบขัดข้อง')} ข้อมูลที่กรอกยังอยู่ครบ กด “${event ? 'บันทึกการแก้ไข' : 'เพิ่มกำหนดการ'}” เพื่อลองอีกครั้ง`,

@@ -5,10 +5,12 @@ import { RequireAuth } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
 import { ToastProvider } from './components/Toast'
 import { StoreProvider } from './data/store'
+import { SyncProvider } from './data/sync'
 import { IS_DEMO } from './mode'
 import { CalendarPage } from './pages/Calendar'
 import { DocumentEditorPage } from './pages/DocumentEditor'
 import { DocumentsPage } from './pages/Documents'
+import { FormsPage } from './pages/Forms'
 import { AccessDeniedPage, LoginPage } from './pages/Login'
 import { MembersPage } from './pages/Members'
 import { OverviewPage } from './pages/Overview'
@@ -38,9 +40,11 @@ const liveRoutes: RouteObject[] = [
       {
         element: (
           <RequireAuth>
-            <StoreProvider>
-              <Layout />
-            </StoreProvider>
+            <SyncProvider>
+              <StoreProvider>
+                <Layout />
+              </StoreProvider>
+            </SyncProvider>
           </RequireAuth>
         ),
         children: [
@@ -48,6 +52,7 @@ const liveRoutes: RouteObject[] = [
           { path: 'documents', element: <DocumentsPage /> },
           { path: 'documents/new', element: <DocumentEditorPage /> },
           { path: 'documents/:id', element: <DocumentEditorPage /> },
+          { path: 'forms', element: <FormsPage /> },
           { path: 'team', element: <TeamPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
         ],

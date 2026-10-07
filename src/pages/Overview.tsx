@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, CalendarPlus, CalendarX, ChevronRight, Unplug, UserPlus, Users } from 'lucide-react'
 import { CalendarView, useCalendarState } from '../components/CalendarView'
+import { SyncBar } from '../components/SyncBar'
 import { useShortcuts } from '../components/nav'
 import { DataBoundary, EmptyState, PageHeader } from '../components/ui'
 import { APP_TAGLINE } from '../config'
@@ -13,7 +14,9 @@ import { formatEventRange, upcomingEvents } from '../lib/datetime'
 const UPCOMING_LIMIT = 5
 
 export function OverviewPage() {
-  const { members, events } = useStore()
+  const { members: allMembers, events } = useStore()
+  // สรุปนับเฉพาะสมาชิกที่ยังอยู่ในแหล่งข้อมูล (รายการที่ไม่พบในชีตต้นฉบับยังดูได้ที่หน้าสมาชิก)
+  const members = allMembers.filter((m) => m.sourceState !== 'missing')
   const activeCount = members.filter((m) => m.status === 'active').length
   const suspendedCount = members.length - activeCount
   const upcoming = upcomingEvents(events, UPCOMING_LIMIT)
@@ -53,6 +56,8 @@ export function OverviewPage() {
           ))}
         </ul>
       </nav>
+
+      <SyncBar kinds={['sheets', 'calendar']} />
 
       <DataBoundary>
         <div className="overview-grid">

@@ -40,8 +40,8 @@ export function resourceStatusLabel(id: ResourceId, status: ResourceStatus): str
   if (status === 'ready') return 'พร้อมใช้งาน'
   if (status === 'needs_connection') return 'รอเชื่อมบัญชี Google'
   if (status === 'missing_scope') return 'ยังไม่ได้รับสิทธิ์ที่ต้องใช้'
-  if (status === 'not_selected') return id === 'sheets' ? 'ยังไม่ได้เลือกชีต' : 'ยังไม่ได้เลือกปฏิทิน'
-  if (status === 'selected') return 'เลือกแหล่งข้อมูลแล้ว'
+  if (status === 'not_selected') return id === 'sheets' ? 'ยังไม่ได้เลือกชีต' : id === 'forms' ? 'ยังไม่ได้เลือกฟอร์ม' : 'ยังไม่ได้เลือกปฏิทิน'
+  if (status === 'selected') return 'เชื่อมแหล่งข้อมูลแล้ว'
   return 'ยังไม่เปิดใช้'
 }
 

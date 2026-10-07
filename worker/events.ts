@@ -1,34 +1,13 @@
 import { nowIso } from './env'
 import type { AppEnv, Ctx } from './env'
 import { HttpError, json, readJson } from './http'
+import { createEvent, toApiEvent, updateEvent } from './gcal'
 import { requireMutation, requireUser } from './session'
+import { loadResource } from './sync'
 import { expectedVersion, findIdempotent, hashPayload, idempotencyInsert, idempotencyKey, invalid, text, versionConflict } from './validation'
 
-interface EventRow {
-  id: string
-  title: string
-  all_day: number
-  start_at: string
-  end_at: string
-  location: string
-  description: string
-  version: number
-  created_at: string
-  updated_at: string
-}
-
-const toEvent = (row: EventRow) => ({
-  id: row.id,
-  title: row.title,
-  allDay: row.all_day === 1,
-  start: row.start_at,
-  end: row.end_at,
-  location: row.location,
-  description: row.description,
-  version: row.version,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-})
+type EventRow = Parameters<typeof toApiEvent>[0]
+const toEvent = toApiEvent
 
 const LOCAL_DATETIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/
 
@@ -67,7 +46,8 @@ const getEvent = (env: AppEnv, id: string) => env.DB.prepare('SELECT * FROM even
 
 async function list(ctx: Ctx): Promise<Response> {
   requireUser(ctx)
-  const { results } = await ctx.env.DB.prepare('SELECT * FROM events ORDER BY start_at, title').all<EventRow>()
+  // รายการที่ถูกยกเลิกหรือลบใน Google ไม่แสดง (แถวยังเก็บไว้)
+  const { results } = await ctx.env.DB.prepare(`SELECT * FROM events WHERE source_state = 'ok' ORDER BY start_at, title`).all<EventRow>()
   return json({ events: results.map(toEvent) })
 }
 
@@ -84,6 +64,19 @@ async function create(ctx: Ctx): Promise<Response> {
   }
   const replayed = await replay()
   if (replayed) return replayed
+
+  const calendar = await loadResource(ctx.env, 'calendar')
+  if (calendar) {
+    // เชื่อมปฏิทินแล้ว: จอง id กับ key ก่อน แล้วสร้างที่ Google ด้วย event ID ที่ได้จาก id นั้น คำขอเดิมที่ลองใหม่จึงไม่สร้างรายการซ้ำ
+    let localId = await findIdempotent(ctx.env, session.user.id, key, 'event.create', payloadHash)
+    if (!localId) {
+      localId = crypto.randomUUID()
+      await idempotencyInsert(ctx.env, session.user.id, key, 'event.create', payloadHash, localId).run().catch(() => undefined)
+      localId = (await findIdempotent(ctx.env, session.user.id, key, 'event.create', payloadHash)) ?? localId
+    }
+    const result = await createEvent(ctx.env, calendar, localId, input)
+    return json({ event: toEvent(result.row), verified: result.verified }, 201)
+  }
 
   const id = crypto.randomUUID()
   const now = nowIso()
@@ -108,6 +101,14 @@ async function update(ctx: Ctx, id: string): Promise<Response> {
   const body = await readJson(ctx.request)
   const input = parseInput(body)
   const version = expectedVersion(body)
+  const existing = await getEvent(ctx.env, id)
+  if (existing?.source === 'calendar') {
+    const calendar = await loadResource(ctx.env, 'calendar')
+    if (calendar && calendar.resourceId === existing.google_calendar_id) {
+      const saved = await updateEvent(ctx.env, calendar, existing, input, version)
+      return json({ event: toEvent(saved.row), verified: saved.verified })
+    }
+  }
   const result = await ctx.env.DB.prepare(
     `UPDATE events SET title = ?, all_day = ?, start_at = ?, end_at = ?, location = ?, description = ?,
             version = version + 1, updated_by = ?, updated_at = ?

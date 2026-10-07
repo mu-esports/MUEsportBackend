@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CalendarPlus, Pencil, SearchX } from 'lucide-react'
+import { CalendarPlus, ExternalLink, Pencil, SearchX } from 'lucide-react'
 import { CalendarView, useCalendarState } from '../components/CalendarView'
 import { Dialog } from '../components/Dialog'
+import { SyncBar } from '../components/SyncBar'
 import { useToast } from '../components/Toast'
 import { DataBoundary, PageHeader } from '../components/ui'
 import { useStore } from '../data/store'
+import { useSync } from '../data/sync'
 import { dateOf, formatDate, formatEventRange } from '../lib/datetime'
 import { EventForm } from './EventForm'
 
@@ -17,6 +19,9 @@ export function CalendarPage() {
   const { state, events } = useStore()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
+  const source = useSync()?.statuses.calendar
+  const linked = source?.linked === true
+  const readOnly = linked && source?.resource?.access === 'read'
 
   const calendar = useCalendarState()
   const { todayDate, selected, goToday, selectDay } = calendar
@@ -93,19 +98,23 @@ export function CalendarPage() {
 
   const editTarget = form?.mode === 'edit' ? events.find((e) => e.id === form.id) : undefined
   const openAdd = () => setForm({ mode: 'add' })
+  // สำเนาจาก Google แก้ได้เมื่อ Google อนุญาตและไม่ใช่กำหนดการซ้ำ (server ตรวจซ้ำเสมอ) ข้อมูลเฉพาะในเว็บแก้ได้ตามเดิม
+  const detailEditable = !!detail && (detail.source !== 'calendar' || (detail.editable !== false && !readOnly))
 
   return (
     <>
       <PageHeader
         title="ปฏิทิน"
-        description="กำหนดการในระบบของชมรม แสดงตามเวลาประเทศไทย"
+        description={linked ? 'กำหนดการจาก Google Calendar ของชมรม แสดงตามเวลาประเทศไทย' : 'กำหนดการในระบบของชมรม แสดงตามเวลาประเทศไทย'}
         action={
-          <button type="button" className="button button-primary" onClick={openAdd}>
+          <button type="button" className="button button-primary" onClick={openAdd} disabled={readOnly}>
             <CalendarPlus aria-hidden="true" size={18} />
             เพิ่มกำหนดการ
           </button>
         }
       />
+
+      <SyncBar kinds={['calendar']} />
 
       <DataBoundary>
         {missingEvent && (
@@ -115,7 +124,7 @@ export function CalendarPage() {
               <p>
                 <strong>ไม่พบกำหนดการที่ต้องการเปิด</strong>
               </p>
-              <p>รายการนี้อาจถูกแทนที่ตอนรีเซ็ตข้อมูลตัวอย่าง หรือลิงก์ไม่ถูกต้อง</p>
+              <p>{linked ? 'รายการนี้อาจถูกลบหรือยกเลิกใน Google Calendar แล้ว หรือลิงก์ไม่ถูกต้อง' : 'รายการนี้อาจถูกแทนที่ตอนรีเซ็ตข้อมูลตัวอย่าง หรือลิงก์ไม่ถูกต้อง'}</p>
               <button
                 type="button"
                 className="button button-small"
@@ -163,22 +172,42 @@ export function CalendarPage() {
           }
           footer={
             <>
-              <button type="button" className="button" onClick={closeDetail}>
+              <button type="button" className="button" onClick={closeDetail} data-autofocus={detailEditable ? undefined : true}>
                 ปิด
               </button>
-              <button
-                type="button"
-                className="button button-primary"
-                onClick={() => setForm({ mode: 'edit', id: detail.id })}
-                data-autofocus
-              >
-                <Pencil aria-hidden="true" size={16} />
-                แก้ไข
-              </button>
+              {detailEditable ? (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={() => setForm({ mode: 'edit', id: detail.id })}
+                  data-autofocus
+                >
+                  <Pencil aria-hidden="true" size={16} />
+                  แก้ไข
+                </button>
+              ) : (
+                detail.googleUrl && (
+                  <a className="button button-primary" href={detail.googleUrl} target="_blank" rel="noopener noreferrer">
+                    เปิดใน Google Calendar
+                    <ExternalLink aria-hidden="true" size={16} />
+                  </a>
+                )
+              )}
             </>
           }
         >
+          {detail.source === 'calendar' && !detailEditable && (
+            <p className="notice detail-alert">
+              {readOnly ? 'บัญชี Google ของชมรมมีสิทธิ์อ่านปฏิทินนี้อย่างเดียว จึงแก้จากเว็บไม่ได้' : `แก้จากเว็บไม่ได้: ${detail.editNote}`}
+            </p>
+          )}
           <dl className="detail-list">
+            <div className="detail-wide">
+              <dt>แหล่งข้อมูล</dt>
+              <dd>
+                {detail.source === 'calendar' ? `Google Calendar${detail.recurring ? ' · กำหนดการซ้ำ' : ''}` : linked ? 'เฉพาะในเว็บ (ยังไม่อยู่ใน Google Calendar)' : 'ในเว็บ'}
+              </dd>
+            </div>
             <div className="detail-wide">
               <dt>วันเวลา</dt>
               <dd>{formatEventRange(detail)}</dd>

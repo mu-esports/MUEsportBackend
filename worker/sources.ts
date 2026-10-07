@@ -1,7 +1,7 @@
 import type { AppEnv, Ctx } from './env'
 import { clubEmail, disconnect, DRIVE_FILE_SCOPE, getAccessToken, loadConnection, missingConnectConfig } from './google'
 import { HttpError, json } from './http'
-import { loadResourceConfigs } from './providers'
+import { loadResources } from './sync'
 import { audit, requireMutation, requireUser } from './session'
 
 type GoogleStatus = 'not_configured' | 'not_connected' | 'connected' | 'needs_reconnect' | 'error'
@@ -17,7 +17,7 @@ async function describe(env: AppEnv, admin: boolean) {
 
   const linked = row && row.status !== 'disconnected' ? row : null
   const docsReady = status === 'connected' && (linked?.scopes ?? '').split(' ').includes(DRIVE_FILE_SCOPE)
-  const configs = await loadResourceConfigs(env)
+  const linkedResources = await loadResources(env)
 
   return {
     google: {
@@ -33,9 +33,12 @@ async function describe(env: AppEnv, admin: boolean) {
     resources: [
       { id: 'docs', status: docsReady ? 'ready' : status === 'connected' ? 'missing_scope' : 'needs_connection' },
       // เชื่อมบัญชีแล้วไม่ได้แปลว่าเลือกชีตหรือปฏิทินแล้ว ต้องมีการตั้งค่าแหล่งข้อมูลแยกต่างหาก
-      { id: 'sheets', status: configs.sheets ? 'selected' : 'not_selected', resourceName: configs.sheets?.resourceName ?? null },
-      { id: 'calendar', status: configs.calendar ? 'selected' : 'not_selected', resourceName: configs.calendar?.resourceName ?? null },
-      { id: 'forms', status: 'disabled' },
+      ...(['sheets', 'calendar', 'forms'] as const).map((id) => ({
+        id,
+        status: linkedResources[id] ? 'selected' : 'not_selected',
+        resourceName: linkedResources[id]?.name ?? null,
+      })),
+      // Excel อยู่นอกงานซิงค์ Google: ยังไม่มีการทำงานส่วนนี้ จึงแสดงว่ายังไม่เปิดใช้
       { id: 'excel', status: 'disabled' },
     ],
   }

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Pencil, Search, SearchX, UserPlus, Users } from 'lucide-react'
+import { ExternalLink, Pencil, Search, SearchX, TriangleAlert, UserPlus, Users } from 'lucide-react'
 import { Dialog } from '../components/Dialog'
+import { SyncBar } from '../components/SyncBar'
 import { useToast } from '../components/Toast'
 import { DataBoundary, EmptyState, PageHeader, StatusBadge } from '../components/ui'
-import { hasCode, messageOf } from '../data/errors'
+import { hasCode, isUnconfirmed, messageOf } from '../data/errors'
 import { useStore } from '../data/store'
+import { useSync } from '../data/sync'
 import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
 import type { Member, MemberRole, MemberStatus } from '../data/types'
 import { formatDate } from '../lib/datetime'
@@ -18,6 +20,10 @@ export function MembersPage() {
   const { state, members, setMemberStatus, refresh } = useStore()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
+  // แหล่งหลักของทะเบียน: ชีตที่เชื่อม (ถ้ามี) ใช้บอกว่าสมาชิกคนใดยังอยู่เฉพาะในเว็บ
+  const sheet = useSync()?.statuses.sheets
+  const sheetLinked = sheet?.linked === true
+  const sheetReadOnly = sheetLinked && sheet?.resource?.access === 'read'
 
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<MemberStatus | ''>('')
@@ -63,6 +69,8 @@ export function MembersPage() {
     setRole('')
   }
 
+  // สำเนาจากชีตแก้ได้เมื่อแถวยังอยู่และบัญชีชมรมเขียนชีตได้ (server ตรวจซ้ำเสมอ) ข้อมูลเฉพาะในเว็บแก้ได้ตามเดิม
+  const canEdit = (m: Member) => m.source !== 'sheets' || !sheetLinked || (m.sourceState !== 'missing' && !sheetReadOnly)
   const byId = (id: string | null) => members.find((m) => m.id === id)
   const detail = byId(detailId)
   const suspendTarget = byId(suspendId)
@@ -91,6 +99,9 @@ export function MembersPage() {
         // โหลดค่าล่าสุดมาแสดงในหน้านี้ ให้ตรวจก่อนกดอีกครั้ง
         refresh().catch(() => undefined)
         setStatusError(`${action}ไม่สำเร็จ: ข้อมูลสมาชิกนี้ถูกแก้ไขจากที่อื่น ด้านล่างเป็นค่าล่าสุดแล้ว ตรวจแล้วกดปุ่มเดิมอีกครั้งถ้ายังต้องการ`)
+      } else if (isUnconfirmed(error)) {
+        refresh().catch(() => undefined)
+        setStatusError(messageOf(error, ''))
       } else {
         setStatusError(`${action}ไม่สำเร็จ: ${messageOf(error, 'ระบบขัดข้อง')} สถานะยังเป็นค่าเดิม กดปุ่มเดิมเพื่อลองอีกครั้ง`)
       }
@@ -105,12 +116,14 @@ export function MembersPage() {
         title="สมาชิก"
         description="ค้นหา ดูรายละเอียด และจัดการรายชื่อสมาชิกของชมรม"
         action={
-          <button type="button" className="button button-primary" onClick={() => setForm({ mode: 'add' })}>
+          <button type="button" className="button button-primary" onClick={() => setForm({ mode: 'add' })} disabled={sheetReadOnly}>
             <UserPlus aria-hidden="true" size={18} />
             เพิ่มสมาชิก
           </button>
         }
       />
+
+      <SyncBar kinds={['sheets']} />
 
       <DataBoundary>
         {members.length === 0 ? (
@@ -206,6 +219,7 @@ export function MembersPage() {
                         <th scope="row" className="cell-name">
                           <span className="member-name">{m.name}</span>
                           <span className="member-nickname">{m.nickname}</span>
+                          <SourceNote member={m} sheetLinked={sheetLinked} />
                         </th>
                         <td data-label="บทบาท">{ROLE_LABELS[m.role]}</td>
                         <td data-label="สถานะ">
@@ -241,24 +255,40 @@ export function MembersPage() {
           onRequestClose={() => openDetail(null)}
           footer={
             <>
-              {detail.status === 'active' ? (
-                <button type="button" className="button button-danger-outline" onClick={() => setSuspendId(detail.id)}>
-                  พักการใช้งาน
-                </button>
+              {!canEdit(detail) ? (
+                <>
+                  {sheet?.resource && (
+                    <a className="button" href={sheet.resource.url} target="_blank" rel="noopener noreferrer">
+                      เปิดชีตต้นฉบับ
+                      <ExternalLink aria-hidden="true" size={16} />
+                    </a>
+                  )}
+                  <button type="button" className="button button-primary" onClick={() => openDetail(null)} data-autofocus>
+                    ปิด
+                  </button>
+                </>
               ) : (
-                <button type="button" className="button" disabled={busy} onClick={() => changeStatus(detail, 'active')}>
-                  เปิดใช้งานอีกครั้ง
-                </button>
+                <>
+                  {detail.status === 'active' ? (
+                    <button type="button" className="button button-danger-outline" onClick={() => setSuspendId(detail.id)}>
+                      พักการใช้งาน
+                    </button>
+                  ) : (
+                    <button type="button" className="button" disabled={busy} onClick={() => changeStatus(detail, 'active')}>
+                      เปิดใช้งานอีกครั้ง
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={() => setForm({ mode: 'edit', id: detail.id })}
+                    data-autofocus
+                  >
+                    <Pencil aria-hidden="true" size={16} />
+                    แก้ไข
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                className="button button-primary"
-                onClick={() => setForm({ mode: 'edit', id: detail.id })}
-                data-autofocus
-              >
-                <Pencil aria-hidden="true" size={16} />
-                แก้ไข
-              </button>
             </>
           }
         >
@@ -267,7 +297,21 @@ export function MembersPage() {
               {statusError}
             </p>
           )}
+          {detail.sourceState === 'missing' && (
+            <p className="notice notice-warning detail-alert">
+              <TriangleAlert aria-hidden="true" size={18} />
+              ไม่พบแถวของสมาชิกนี้ในชีตต้นฉบับแล้ว ข้อมูลด้านล่างเป็นค่าที่อ่านได้ครั้งล่าสุด ระบบเก็บไว้ ไม่ลบให้เอง
+              {sheetLinked && ' จึงแก้จากเว็บไม่ได้จนกว่าแถวจะกลับมาในชีต (กู้คืนได้จากประวัติเวอร์ชันของ Google Sheets)'}
+            </p>
+          )}
+          {sheetReadOnly && detail.source === 'sheets' && (
+            <p className="notice detail-alert">บัญชี Google ของชมรมมีสิทธิ์อ่านชีตนี้อย่างเดียว จึงแก้จากเว็บไม่ได้ แก้ที่ชีตต้นฉบับ</p>
+          )}
           <dl className="detail-list">
+            <div>
+              <dt>แหล่งข้อมูล</dt>
+              <dd>{detail.source === 'sheets' ? 'Google Sheets ที่เชื่อม' : sheetLinked ? 'เฉพาะในเว็บ (ยังไม่อยู่ในชีต)' : 'ในเว็บ'}</dd>
+            </div>
             <div>
               <dt>บทบาท</dt>
               <dd>{ROLE_LABELS[detail.role]}</dd>
@@ -316,4 +360,11 @@ export function MembersPage() {
       )}
     </>
   )
+}
+
+/** ป้ายกำกับสมาชิกที่ไม่ได้เป็นสำเนาปกติจากชีต เพื่อไม่ให้ข้อมูลสองที่ดูเป็น "ล่าสุด" เหมือนกัน */
+function SourceNote({ member, sheetLinked }: { member: Member; sheetLinked: boolean }) {
+  if (member.sourceState === 'missing') return <span className="badge badge-warning source-note">ไม่พบในชีตต้นฉบับ</span>
+  if (sheetLinked && member.source === 'local') return <span className="badge badge-neutral source-note">เฉพาะในเว็บ</span>
+  return null
 }

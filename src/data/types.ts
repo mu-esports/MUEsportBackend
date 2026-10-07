@@ -13,9 +13,13 @@ export interface Member {
   addedAt: string
   /** รุ่นของข้อมูล เพิ่มทุกครั้งที่แก้ ใช้กันการเขียนทับการแก้ของคนอื่น */
   version: number
+  /** sheets = สำเนาจาก Google Sheets ที่เชื่อม, local = อยู่เฉพาะในเว็บ (ไม่มีในโหมดตัวอย่าง) */
+  source?: 'local' | 'sheets'
+  /** missing = เคยมาจากชีตแต่ไม่พบแถวแล้ว */
+  sourceState?: 'ok' | 'missing'
 }
 
-export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version'>
+export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState'>
 
 export interface ClubEvent {
   id: string
@@ -29,9 +33,17 @@ export interface ClubEvent {
   description: string
   /** รุ่นของข้อมูล เพิ่มทุกครั้งที่แก้ */
   version: number
+  /** calendar = สำเนาจาก Google Calendar ที่เชื่อม, local = อยู่เฉพาะในเว็บ */
+  source?: 'local' | 'calendar'
+  /** เป็นรายการย่อยของกำหนดการซ้ำ */
+  recurring?: boolean
+  /** false = แก้จากเว็บไม่ได้ ให้เปิด Google Calendar (เหตุผลอยู่ใน editNote) */
+  editable?: boolean
+  editNote?: string
+  googleUrl?: string | null
 }
 
-export type ClubEventInput = Omit<ClubEvent, 'id' | 'version'>
+export type ClubEventInput = Pick<ClubEvent, 'title' | 'allDay' | 'start' | 'end' | 'location' | 'description'>
 
 export interface AppData {
   members: Member[]

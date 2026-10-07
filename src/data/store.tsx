@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { messageOf } from './errors'
 import { repository } from './repository'
+import { useAutoSync } from './sync'
 import type { ClubEvent, ClubEventInput, Member, MemberInput, MemberStatus } from './types'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -53,11 +54,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await Promise.all([refreshMembers(), refreshEvents()])
   }, [refreshMembers, refreshEvents])
 
+  // ลำดับของการโหลดทั้งชุด: เฉพาะการโหลดครั้งล่าสุดเท่านั้นที่เปลี่ยนสถานะของหน้าได้
+  // ผลของการโหลดที่ถูกแทนที่ไปแล้วถูกทิ้ง (ดู memberSeq/eventSeq) จึงต้องไม่ทำให้หน้าขึ้นว่าโหลดเสร็จก่อนข้อมูลชุดล่าสุดมาถึง
+  // เกิดได้เมื่อ React เรียก effect ตอนเปิดหน้าซ้ำในโหมดพัฒนา (StrictMode): หน้าจะแสดง “ไม่มีข้อมูล” ชั่วครู่ทั้งที่มีข้อมูล
+  const loadSeq = useRef(0)
+
   const reload = useCallback(() => {
+    const current = ++loadSeq.current
     setState('loading')
     refresh().then(
-      () => setState('ready'),
+      () => {
+        if (current === loadSeq.current) setState('ready')
+      },
       (error: unknown) => {
+        if (current !== loadSeq.current) return
         setLoadError(messageOf(error, ''))
         setState('error')
       },
@@ -65,6 +75,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   useEffect(reload, [reload])
+
+  // สำเนาจาก Google เปลี่ยน (จากรอบซิงค์ของแท็บนี้ แท็บอื่น อุปกรณ์อื่น หรือ Cron): ดึงรายการใหม่เงียบ ๆ
+  // ฟอร์มที่เปิดอยู่เก็บค่าของตัวเอง จึงไม่ถูกทับ และ server ยังตรวจรุ่นตอนบันทึก
+  useAutoSync(['sheets', 'calendar'], () => {
+    if (state === 'ready') refresh().catch(() => undefined)
+  })
 
   // กลับมาที่แท็บนี้: ดึงค่าล่าสุดที่คนอื่นอาจแก้ไว้ ฟอร์มที่เปิดอยู่เก็บค่าของตัวเอง จึงไม่ถูกล้าง
   useEffect(() => {
