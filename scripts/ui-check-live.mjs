@@ -1,21 +1,24 @@
 // ตรวจ UI โหมดใช้งานจริงในเบราว์เซอร์จริง: หน้าเว็บ + Worker + D1 local ผ่าน `vite dev`
 // ใช้: `npm run check:ui:live` (สคริปต์เตรียมฐานข้อมูลทดสอบ เปิดและปิด dev server เอง ที่พอร์ต 5183)
+// ตัวแปร: UI_LIVE_PORT (ค่าเริ่มต้น 5183), UI_STATE_DIR (ค่าเริ่มต้น .wrangler/ui-test-state), BROWSER_CHANNEL (msedge | chrome)
+//         ชุดตรวจสองชุดที่ใช้พอร์ตและโฟลเดอร์เดียวกันรันพร้อมกันไม่ได้ ถ้าต้องรันซ้อนให้ตั้งทั้งสองค่าแยกกัน
 //
 // ขอบเขตของชุดนี้
 // - [จริง]   = หน้าเว็บคุยกับ Worker และ D1 local จริง (สมาชิก กำหนดการ ทีมงาน สิทธิ์ session แหล่งข้อมูล)
 // - [จำลอง]  = ตอบ /api/documents* และบางสถานะด้วยข้อมูลจำลองในเบราว์เซอร์ทดสอบ เพื่อดูสถานะของหน้าจอ
-//              เพราะเครื่องนี้ยังไม่มี Google credentials การคุยกับ Google ของ Worker ตรวจใน `npm test` (Google จำลอง)
+//              ชุดตรวจนี้ไม่ใช้ข้อมูล Google จริง การคุยกับ Google ของ Worker ตรวจใน `npm test` (Google จำลอง)
 // ไม่มีข้อใดในไฟล์นี้เป็นการตรวจกับ Google จริง
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { chromium, webkit } from 'playwright-core'
 import { prepareLocalDatabase } from './local-fixtures.mjs'
 import { checkMonthChip, probeLoadSignal, saveMonthChipDiagnostics, traceApi } from './ui-data-ready.mjs'
+import { makePdf } from './ui-library-mock.mjs'
 
 const PORT = Number(process.env.UI_LIVE_PORT ?? 5183)
 const BASE = `http://localhost:${PORT}`
 const CHANNEL = process.env.BROWSER_CHANNEL ?? 'msedge'
-const STATE_DIR = '.wrangler/ui-test-state'
+const STATE_DIR = process.env.UI_STATE_DIR ?? '.wrangler/ui-test-state'
 const OUT = 'screenshots'
 mkdirSync(OUT, { recursive: true })
 
@@ -183,7 +186,7 @@ try {
     (await a.locator('.topbar .account').innerText()).includes('staff.a@example.com') &&
     (await a.locator('.topbar .account').innerText()).includes('ทีมงาน') &&
     (await a.locator('.sidebar').getByRole('link', { name: 'ทีมงาน' }).count()) === 0 &&
-    (await a.locator('.sidebar').getByRole('link', { name: 'เอกสาร' }).count()) === 1)
+    (await a.locator('.sidebar').getByRole('link', { name: 'ไฟล์ชมรม' }).count()) === 1)
   await shot(a, 'live-overview-empty-1440')
 
   await a.locator('.sidebar').getByRole('link', { name: 'สมาชิก', exact: true }).click()
@@ -469,23 +472,23 @@ try {
   }
 
   // ================= 6. เอกสาร: ส่วนที่คุยกับ Worker จริง =================
-  await a.locator('.sidebar').getByRole('link', { name: 'เอกสาร', exact: true }).click()
-  check('[จริง] เอกสาร: รายการว่างบอกสิ่งที่ทำได้ และไม่ดึงเอกสารอื่นใน Drive',
-    (await appears(a.getByText('ยังไม่มีเอกสาร'))) && (await a.getByText('เอกสารอื่นใน Google Drive ของชมรมจะไม่ถูกดึงเข้ามา').isVisible()))
+  await a.locator('.sidebar').getByRole('link', { name: 'ไฟล์ชมรม', exact: true }).click()
+  check('[จริง] คลังไฟล์ที่ยังไม่ได้เชื่อม Google: บอกว่ายังไม่พร้อม ไม่แสดงเป็นรายการว่าง และมีทางสร้างเอกสาร',
+    (await appears(a.getByText('คลังไฟล์ยังไม่พร้อมใช้งาน'))) && (await a.getByRole('link', { name: 'สร้างเอกสาร', exact: true }).isVisible()) &&
+    (await a.getByText('ยังไม่มีไฟล์', { exact: true }).count()) === 0)
   await shot(a, 'live-documents-empty-1440')
-  await a.getByRole('link', { name: 'สร้างเอกสารแรก' }).click()
+  await a.getByRole('link', { name: 'สร้างเอกสาร', exact: true }).click()
   await a.getByRole('button', { name: 'สร้างเอกสาร' }).click()
   check('[จริง] สร้างเอกสาร: ชื่อบังคับ ตรวจก่อนส่ง และ focus ไปที่ช่องชื่อ',
     (await appears(a.locator('#document-title-error', { hasText: 'กรอกชื่อเอกสาร' }))) && (await a.evaluate(() => document.activeElement?.id)) === 'document-title')
   await a.locator('#document-title').fill('ทดสอบสร้างเอกสารจริง')
-  await a.locator('#document-text').fill('บรรทัดแรก\nบรรทัดที่สอง 🎮')
   const errorsBeforeCreate = consoleErrors.length
   await a.getByRole('button', { name: 'สร้างเอกสาร' }).click()
   const createAlert = a.locator('.editor-card .form-alert')
   check('[จริง] สร้างเอกสารขณะยังไม่ได้เชื่อม Google: Worker ปฏิเสธ แจ้งเหตุผลจริง ไม่แสดงว่าสร้างแล้ว และ draft ยังอยู่',
     (await appears(createAlert)) && (await createAlert.innerText()).includes('ยังไม่ได้เชื่อมบัญชี Google ของชมรม') &&
     (await createAlert.innerText()).includes('ยังไม่ได้ส่งคำสั่งสร้างไฟล์ไป Google Docs') &&
-    (await a.locator('#document-text').inputValue()) === 'บรรทัดแรก\nบรรทัดที่สอง 🎮' && new URL(a.url()).pathname === '/documents/new' &&
+    (await a.locator('#document-title').inputValue()) === 'ทดสอบสร้างเอกสารจริง' && (await a.locator('#document-text').count()) === 0 && new URL(a.url()).pathname === '/documents/new' &&
     (await a.locator('.toast').count()) === 0)
   await shot(a, 'live-document-create-not-connected-1440')
   ignoreErrorsSince(errorsBeforeCreate)
@@ -514,13 +517,13 @@ try {
   await a.getByRole('button', { name: 'สร้างเอกสาร' }).click()
   const expiredDialog = a.locator('dialog[open]', { hasText: 'เซสชันหมดอายุ' })
   check('[จริง] session ถูกยกเลิกระหว่างแก้เอกสาร: แจ้งเซสชันหมดอายุ และ draft ยังอยู่ในหน้า',
-    loggedOut.status === 200 && (await appears(expiredDialog)) && (await a.locator('#document-text').inputValue()) === 'บรรทัดแรก\nบรรทัดที่สอง 🎮')
+    loggedOut.status === 200 && (await appears(expiredDialog)) && (await a.locator('#document-title').inputValue()) === 'ทดสอบสร้างเอกสารจริง')
   await a.screenshot({ path: `${OUT}/live-session-expired-1440.png` })
   await expiredDialog.getByRole('button', { name: 'เข้าสู่ระบบแล้ว ทำงานต่อ' }).click()
   check('[จริง] ยังไม่ได้เข้าสู่ระบบใหม่แล้วกดทำงานต่อ: บอกว่ายังไม่พบการเข้าสู่ระบบ', await appears(expiredDialog.getByText('ยังไม่พบการเข้าสู่ระบบ')))
   await expiredDialog.getByRole('button', { name: 'ปิดไว้ก่อน' }).click()
   check('[จริง] ปิด dialog ไว้ก่อน: แถบเตือนยังอยู่ และคัดลอก draft ได้',
-    (await a.locator('.session-banner').isVisible()) && (await a.locator('#document-text').inputValue()).includes('บรรทัดที่สอง'))
+    (await a.locator('.session-banner').isVisible()) && (await a.locator('#document-title').inputValue()) === 'ทดสอบสร้างเอกสารจริง')
   // เข้าสู่ระบบใหม่ด้วยบัญชีเดิม (จำลองด้วย session ที่สองของผู้ใช้เดิมที่สร้างไว้ในฐานทดสอบ)
   await a.context().addCookies([{ name: 'mu_session', value: actors.a.tokens[1], url: BASE, httpOnly: true, sameSite: 'Lax' }])
   await a.locator('.session-banner').getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง' }).click()
@@ -534,7 +537,6 @@ try {
   const switcher = await newPage(1280, 800, actors.a, 1)
   await switcher.goto(`${BASE}/documents/new`)
   await switcher.locator('#document-title').fill('draft ของ A')
-  await switcher.locator('#document-text').fill('ข้อความลับของ A')
   await switcher.route('**/api/documents', (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 401, json: { error: 'unauthenticated', message: 'ยังไม่ได้เข้าสู่ระบบ หรือเซสชันหมดอายุแล้ว' } }) : route.fallback()))
   const errorsBeforeSwitch = consoleErrors.length
   await switcher.getByRole('button', { name: 'สร้างเอกสาร' }).click()
@@ -546,11 +548,11 @@ try {
   await switcher.locator('.topbar .account').waitFor()
   check('[จริง] เข้าสู่ระบบใหม่เป็นอีกบัญชี: หน้าโหลดใหม่เป็นบัญชีนั้น และ draft ของบัญชีเดิมไม่ถูกส่งต่อ',
     (await switcher.locator('.topbar .account').innerText()).includes('staff.b@example.com') && new URL(switcher.url()).pathname === '/' &&
-    !(await switcher.locator('body').innerText()).includes('ข้อความลับของ A'))
+    !(await switcher.locator('body').innerText()).includes('draft ของ A'))
   await switcher.unroute('**/api/documents')
   await switcher.goto(`${BASE}/documents/new`)
   check('[จริง] เปิดหน้าสร้างเอกสารด้วยบัญชีใหม่: ช่องว่าง ไม่มี draft เดิม',
-    (await switcher.locator('#document-title').inputValue()) === '' && (await switcher.locator('#document-text').inputValue()) === '')
+    (await switcher.locator('#document-title').inputValue()) === '' && (await switcher.locator('#document-text').count()) === 0)
   ignoreErrorsSince(errorsBeforeSwitch)
   await switcher.context().close()
 
@@ -561,7 +563,29 @@ try {
 
   /** API เอกสารจำลองในเบราว์เซอร์ทดสอบ ใช้ดูสถานะของหน้าจอเท่านั้น */
   async function mockDocuments(page, state) {
-    const docs = () => state.docs.map(({ text: _t, revision: _r, editable: _e, reasons: _x, ...info }) => info)
+    const docs = () => state.docs.map(({ text: _t, revision: _r, editable: _e, reasons: _x, ...info }) => ({ ...info, googleId: /\/document\/d\/([^/]+)/.exec(info.googleUrl)?.[1] }))
+    // รายการ/preview ใช้ API คลังใหม่ ส่วน tests ของ editor เดิมเปิด /documents/:id/edit โดยตรง
+    // จำลองทั้งสอง API จากเอกสารชุดเดียวกัน ไม่เรียก Google จริง
+    const item = (doc) => ({ id: doc.googleId, name: doc.title, kind: 'doc', mimeType: 'application/vnd.google-apps.document', modifiedTime: doc.updatedAt, size: null, shortcut: false, shared: false, folder: null, previewable: doc.status !== 'unavailable' })
+    await page.route('**/api/library/**', async (route) => {
+      const url = new URL(route.request().url())
+      const parts = url.pathname.split('/').slice(3)
+      const json = (body, status = 200) => route.fulfill({ status, json: body })
+      if (state.delay) await new Promise((resolve) => setTimeout(resolve, state.delay))
+      if (parts[0] === 'status') return json({ enabled: true, reason: null, message: null, canEnable: false })
+      if (parts[0] !== 'files') return route.fallback()
+      if (parts.length === 1) {
+        if (state.listFails) return json({ error: 'google_error', message: 'ระบบขัดข้อง ลองอีกครั้งในอีกสักครู่' }, 502)
+        const search = (url.searchParams.get('q') ?? '').toLowerCase()
+        const files = docs().filter((doc) => doc.title.toLowerCase().includes(search)).map(item)
+        return json({ files, nextPageToken: null, incomplete: false, fetchedAt: iso(0), stale: false, pageSize: 30 })
+      }
+      const doc = docs().find((doc) => doc.googleId === parts[1])
+      if (!doc || doc.status === 'unavailable') return json({ error: 'file_unavailable', message: 'เปิดไฟล์นี้ไม่ได้' }, 404)
+      if (parts.length === 2) return json({ file: item(doc), preview: { kind: 'pdf', reason: null, maxBytes: 26214400 }, links: { open: doc.googleUrl, edit: { url: doc.googleUrl, label: 'แก้ไขใน Google Docs' } }, registered: { documentId: doc.id }, fetchedAt: iso(0) })
+      if (parts[2] === 'content') return route.fulfill({ contentType: 'application/pdf', body: makePdf() })
+      return route.fallback()
+    })
     await page.route('**/api/documents**', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
@@ -651,31 +675,33 @@ try {
   await mockDocuments(d, state)
   state.delay = 700
   await d.goto(`${BASE}/documents`)
-  check('[จำลอง] รายการเอกสาร: มีสถานะกำลังโหลด', await appears(d.getByText('กำลังโหลดรายการเอกสาร…'), 2000))
-  await d.locator('.document-row').first().waitFor()
+  await d.waitForURL(`${BASE}/files`)
+  check('[จำลอง] คลังไฟล์: มีสถานะกำลังโหลด', await appears(d.getByText('กำลังโหลดรายการไฟล์…'), 2000))
+  await d.locator('.file-card').first().waitFor()
   state.delay = 0
-  const listText = await d.locator('.document-list').innerText()
-  check('[จำลอง] รายการเอกสาร: ชื่อ เวลาแก้ล่าสุด ผู้แก้ในเว็บ สถานะ และทางเปิด editor/Google Docs',
-    (await d.locator('.document-row').count()) === 3 && listText.includes('โดย ทีมงาน บี') && listText.includes('แก้ในเว็บได้') &&
-    listText.includes('อ่านอย่างเดียวในเว็บ') && listText.includes('เปิดจาก Google ไม่ได้') &&
-    (await d.locator('.document-row').first().getByRole('link', { name: /Google Docs/ }).getAttribute('target')) === '_blank' &&
-    (await d.locator('.document-row').first().getByRole('link', { name: /Google Docs/ }).getAttribute('rel')).includes('noopener'))
+  const listText = await d.locator('.file-grid').innerText()
+  check('[จำลอง] คลังไฟล์: แสดงชื่อ ชนิด เวลาแก้ล่าสุด รวมไฟล์ที่ไม่มีตัวอย่าง และลิงก์ไป preview แทน editor',
+    (await d.locator('.file-card').count()) === 3 && listText.includes('บันทึกการประชุมทีมงาน ครั้งที่ 12') && listText.includes(LONG) && listText.includes('ไม่มีตัวอย่างในเว็บ') &&
+    (await d.locator('.file-card .file-name').first().getAttribute('href')) === '/files/mock-1' && (await d.locator('.file-meta span', { hasText: 'แก้ไข' }).count()) === 3)
   check('[จำลอง] รายการเอกสาร: งานสร้างที่ค้างแสดงสถานะตามจริงพร้อมปุ่มทำต่อ',
     (await d.locator('.pending-card').innerText()).includes('สร้างไฟล์ใน Google Docs แล้ว แต่ยังเขียนเนื้อหาหรือลงทะเบียนไม่ครบ') &&
     (await d.getByRole('button', { name: 'ทำต่อให้เสร็จ' }).isVisible()))
   await shot(d, 'live-documents-list-1440')
-  await d.locator('#document-search').fill('ประกาศ')
-  check('[จำลอง] ค้นหาชื่อเอกสาร', (await d.locator('.document-row').count()) === 1 && (await d.getByText('พบ 1 จาก 3 ฉบับ').isVisible()))
-  await d.locator('#document-search').fill('ไม่มีชื่อนี้')
-  check('[จำลอง] ค้นหาไม่พบ: มีข้อความและปุ่มล้าง', (await appears(d.getByText('ไม่พบเอกสารที่ชื่อตรงกับคำค้นหา'))) && (await d.getByRole('button', { name: 'ล้างคำค้นหา' }).isVisible()))
+  await d.locator('#file-search').fill('ประกาศ')
+  await d.locator('#file-search').press('Enter')
+  await d.waitForFunction(() => document.querySelectorAll('.file-card').length === 1)
+  check('[จำลอง] ค้นหาชื่อเอกสารในคลัง', (await d.locator('.file-card').count()) === 1 && (await d.locator('.file-card').innerText()).includes('ร่างประกาศรับสมัคร') && d.url().includes('q='))
+  await d.locator('#file-search').fill('ไม่มีชื่อนี้')
+  await d.locator('#file-search').press('Enter')
+  check('[จำลอง] ค้นหาไม่พบ: มีข้อความและปุ่มล้าง', (await appears(d.getByText('ไม่พบไฟล์ที่ตรงกับเงื่อนไข'))) && (await d.getByRole('button', { name: 'ล้างตัวกรอง' }).isVisible()))
   await d.screenshot({ path: `${OUT}/live-documents-no-results-1440.png` })
-  await d.getByRole('button', { name: 'ล้างคำค้นหา' }).click()
+  await d.getByRole('button', { name: 'ล้างตัวกรอง' }).click()
 
   // เปิด editor
   state.delay = 700
-  await d.locator('.document-row').first().getByRole('link', { name: /เปิด .* ในเว็บ/ }).click()
-  check('[จำลอง] editor: มีสถานะกำลังโหลดเนื้อหาจาก Google Docs และ URL คงที่ /documents/<id>',
-    (await appears(d.getByText('กำลังโหลดเนื้อหาล่าสุดจาก Google Docs…'), 2000)) && new URL(d.url()).pathname === '/documents/doc-1')
+  await d.goto(`${BASE}/documents/doc-1/edit`)
+  check('[จำลอง] editor เดิม: มีสถานะกำลังโหลดเนื้อหาจาก Google Docs และ URL คงที่ /documents/<id>/edit',
+    (await appears(d.getByText('กำลังโหลดเนื้อหาล่าสุดจาก Google Docs…'), 2000)) && new URL(d.url()).pathname === '/documents/doc-1/edit')
   await d.locator('#document-text').waitFor()
   state.delay = 0
   const saveButton = d.getByRole('button', { name: 'บันทึก', exact: true })
@@ -787,7 +813,7 @@ try {
   await d.locator('#document-text').fill(BODY)
   await saveButton.click()
   await d.locator('.editor-status', { hasText: 'บันทึกแล้วเมื่อ' }).waitFor()
-  await d.goto(`${BASE}/documents/doc-2`)
+  await d.goto(`${BASE}/documents/doc-2/edit`)
   await d.locator('#document-text').waitFor()
   check('[จำลอง] เอกสารที่มีโครงสร้าง rich: เปิดอ่านได้อย่างเดียว บอกเหตุผล ไม่มีปุ่มบันทึก และมีทางไป Google Docs',
     (await d.getByText('เอกสารนี้แก้ในเว็บไม่ได้ เปิดอ่านได้อย่างเดียว').isVisible()) && (await d.getByText('มีตาราง').first().isVisible()) &&
@@ -796,35 +822,34 @@ try {
   await shot(d, 'live-document-read-only-1440')
 
   const errorsBeforeUnavailable = consoleErrors.length
-  await d.goto(`${BASE}/documents/doc-3`)
+  await d.goto(`${BASE}/documents/doc-3/edit`)
   check('[จำลอง] เอกสารที่เปิดจาก Google ไม่ได้: บอกเหตุผล มีลองใหม่และทางกลับ',
     (await appears(d.getByText('เปิดเอกสารไม่สำเร็จ'))) && (await d.getByText('อาจถูกลบ หรือบัญชี Google ของชมรมไม่มีสิทธิ์').isVisible()) &&
-    (await d.getByRole('button', { name: 'ลองโหลดอีกครั้ง' }).isVisible()) && (await d.getByRole('link', { name: 'กลับไปรายการเอกสาร' }).isVisible()))
+    (await d.getByRole('button', { name: 'ลองโหลดอีกครั้ง' }).isVisible()) && (await d.getByRole('link', { name: 'กลับไปไฟล์ชมรม' }).isVisible()))
   await shot(d, 'live-document-unavailable-1440')
-  await d.goto(`${BASE}/documents/no-such-doc`)
-  check('[จำลอง] เอกสารที่ไม่มีในระบบ: แจ้งไม่พบและมีทางกลับ', (await appears(d.getByText('ไม่พบเอกสารนี้', { exact: true }))) && (await d.getByRole('link', { name: 'กลับไปรายการเอกสาร' }).isVisible()))
+  await d.goto(`${BASE}/documents/no-such-doc/edit`)
+  check('[จำลอง] เอกสารที่ไม่มีในระบบ: แจ้งไม่พบและมีทางกลับ', (await appears(d.getByText('ไม่พบเอกสารนี้', { exact: true }))) && (await d.getByRole('link', { name: 'กลับไปไฟล์ชมรม' }).isVisible()))
   state.readFails = 2 // โหมดพัฒนาของ React เรียก effect สองรอบ จึงให้ล้มเหลวทั้งสองคำขอแรก
-  await d.goto(`${BASE}/documents/doc-1`)
+  await d.goto(`${BASE}/documents/doc-1/edit`)
   await d.getByRole('button', { name: 'ลองโหลดอีกครั้ง' }).click()
   check('[จำลอง] โหลดเอกสารล้มเหลวแล้วลองใหม่ได้', await appears(d.locator('#document-text')))
   state.listFails = true
   await d.goto(`${BASE}/documents`)
-  check('[จำลอง] รายการเอกสารโหลดไม่สำเร็จ: มีข้อผิดพลาดและปุ่มลองใหม่', (await appears(d.getByText('โหลดรายการเอกสารไม่สำเร็จ'))) && (await d.getByRole('button', { name: 'ลองโหลดอีกครั้ง' }).isVisible()))
+  check('[จำลอง] คลังไฟล์โหลดไม่สำเร็จ: มีข้อผิดพลาดและปุ่มลองใหม่', (await appears(d.getByText('โหลดรายการไฟล์ไม่สำเร็จ'))) && (await d.getByRole('button', { name: 'ลองโหลดอีกครั้ง' }).isVisible()))
   state.listFails = false
   await d.getByRole('button', { name: 'ลองโหลดอีกครั้ง' }).click()
-  await d.locator('.document-row').first().waitFor()
+  await d.locator('.file-card').first().waitFor()
   ignoreErrorsSince(errorsBeforeUnavailable)
 
   // งานค้าง: ทำต่อ
   await d.getByRole('button', { name: 'ทำต่อให้เสร็จ' }).click()
-  check('[จำลอง] งานสร้างที่ค้าง: ทำต่อเสร็จแล้วเปิดเอกสารนั้น', (await appears(d.locator('.toast', { hasText: 'ครบแล้ว' }))) && new URL(d.url()).pathname === '/documents/doc-resumed')
+  check('[จำลอง] งานสร้างที่ค้าง: ทำต่อเสร็จแล้วเปิดตัวอย่างไฟล์นั้น', (await appears(d.locator('.toast', { hasText: 'ครบแล้ว' }))) && new URL(d.url()).pathname === '/files/mock-resumed')
 
   // สร้างเอกสาร: สำเร็จบางส่วนแล้วลองใหม่
   await d.goto(`${BASE}/documents/new`)
   state.createFailsOnce = true
   state.delay = 600
   await d.locator('#document-title').fill('แผนงานเดือนหน้า')
-  await d.locator('#document-text').fill('หัวข้อ\nรายละเอียด')
   const errorsBeforePartial = consoleErrors.length
   await d.getByRole('button', { name: 'สร้างเอกสาร' }).click()
   check('[จำลอง] สร้างเอกสาร: ระหว่างรอแสดงกำลังสร้าง ปุ่มกดซ้ำไม่ได้',
@@ -833,18 +858,20 @@ try {
   check('[จำลอง] สร้างเอกสารแล้วไม่ทราบผล: ไม่รับรองว่ายังไม่ได้สร้างหรือไม่มีซ้ำ บอกว่าระบบจะค้นหาไฟล์เดิม และ draft ยังอยู่',
     (await appears(partialAlert)) && (await partialAlert.innerText()).includes('ไม่ทราบว่า Google Docs สร้างไฟล์แล้วหรือยัง') &&
     !/ยังไม่ได้สร้าง|ยังไม่ได้ส่งคำสั่ง/.test(await partialAlert.innerText()) &&
-    (await d.locator('#document-text').inputValue()) === 'หัวข้อ\nรายละเอียด' && (await d.locator('.toast').count()) === 0)
+    (await d.locator('#document-title').inputValue()) === 'แผนงานเดือนหน้า' && (await d.locator('#document-text').count()) === 0 && (await d.locator('.create-done').count()) === 0)
   await shot(d, 'live-document-create-partial-1440')
   state.delay = 0
   state.createInProgressOnce = true
   await d.getByRole('button', { name: 'สร้างเอกสาร' }).click()
   check('[จำลอง] กดสร้างซ้ำขณะคำขอก่อนยังทำอยู่: บอกว่ากำลังทำอยู่ ไม่แสดงว่าสร้างแล้ว และ draft ยังอยู่',
     (await appears(partialAlert.getByText('กำลังสร้างเอกสารนี้อยู่จากคำขอก่อนหน้า'))) && new URL(d.url()).pathname === '/documents/new' &&
-    (await d.locator('#document-text').inputValue()) === 'หัวข้อ\nรายละเอียด')
+    (await d.locator('#document-title').inputValue()) === 'แผนงานเดือนหน้า')
   await d.getByRole('button', { name: 'สร้างเอกสาร' }).click()
-  check('[จำลอง] ลองสร้างอีกครั้ง: ใช้ key เดิม (server จึงทำต่อไม่สร้างซ้ำ) สำเร็จแล้วไปที่ URL ของเอกสาร และไม่ถามเรื่องทิ้งการแก้',
-    (await appears(d.locator('.toast', { hasText: 'สร้างเอกสาร “แผนงานเดือนหน้า”' }))) && new URL(d.url()).pathname === '/documents/doc-new' &&
-    state.createKeys.length === 3 && new Set(state.createKeys).size === 1 && (await d.locator('dialog[open]').count()) === 0)
+  check('[จำลอง] ลองสร้างอีกครั้ง: ใช้ key เดิม สร้างเอกสารว่างครั้งเดียว ยืนยันผลในหน้า และมีลิงก์ไป Google/preview',
+    (await appears(d.locator('.create-done h2', { hasText: 'สร้างเอกสาร “แผนงานเดือนหน้า” แล้ว' }))) && new URL(d.url()).pathname === '/documents/new' &&
+    state.docs[0].text === '' && state.createKeys.length === 3 && new Set(state.createKeys).size === 1 && (await d.locator('dialog[open]').count()) === 0 &&
+    (await d.getByRole('link', { name: /เปิด Google Docs เพื่อเขียนเนื้อหา/ }).getAttribute('href')) === state.docs[0].googleUrl &&
+    (await d.getByRole('link', { name: 'ดูตัวอย่างในเว็บ' }).getAttribute('href')) === '/files/mock-new')
   ignoreErrorsSince(errorsBeforePartial)
 
   state.operations = [
@@ -891,9 +918,8 @@ try {
     })
     await p.goto(`${BASE}/documents/new`)
     await p.locator('#document-title').fill('ร่างก่อนออกจากระบบ')
-    await p.locator('#document-text').fill('ข้อความที่ยังไม่ได้บันทึก')
     const draftIntact = async () =>
-      (await p.locator('#document-title').inputValue()) === 'ร่างก่อนออกจากระบบ' && (await p.locator('#document-text').inputValue()) === 'ข้อความที่ยังไม่ได้บันทึก'
+      (await p.locator('#document-title').inputValue()) === 'ร่างก่อนออกจากระบบ' && (await p.locator('#document-text').count()) === 0
     if (mobile) await p.getByRole('button', { name: 'เปิดเมนู' }).click()
     const button = logoutButton(p, mobile)
     await button.waitFor()
@@ -1022,8 +1048,8 @@ try {
     [844, 390, 'landscape-844x390'], [667, 375, 'landscape-667x375'],
   ]
   const PAGES = [
-    ['/', 'overview'], ['/members', 'members'], ['/calendar', 'calendar'], ['/documents', 'documents'],
-    ['/documents/doc-1', 'document-editor'], ['/documents/new', 'document-new'], ['/sources', 'sources'], ['/team', 'team'],
+    ['/', 'overview'], ['/members', 'members'], ['/calendar', 'calendar'], ['/files', 'documents'],
+    ['/documents/doc-1/edit', 'document-editor'], ['/documents/new', 'document-new'], ['/sources', 'sources'], ['/team', 'team'],
   ]
   // สัญญาณ “โหลดเสร็จ” ที่ sweep และข้อตรวจอื่นใช้รอ (สถานะกำลังโหลดหายไป) ต้องหมายความว่าข้อมูลชุดล่าสุดถูกวาดแล้ว
   // ไม่เช่นนั้นข้อตรวจที่วัดหน้าทันทีหลังสัญญาณนี้จะวัดหน้าว่าง และผู้ใช้จะเห็นข้อความว่าไม่มีข้อมูลชั่วครู่ทั้งที่มีข้อมูล
@@ -1119,12 +1145,13 @@ try {
         (await p.locator('.sidebar').isVisible()) === !menuMode && (await p.getByRole('button', { name: 'เปิดเมนู' }).isVisible()) === menuMode &&
         (await p.locator('.topbar .account').isVisible()) === !menuMode)
       if (menuMode) {
-        await p.goto(`${BASE}/documents`)
+        // The old /documents URL redirects; open the canonical page before testing the menu.
+        await p.goto(`${BASE}/files`)
         await p.getByRole('button', { name: 'เปิดเมนู' }).click()
         const menu = p.locator('dialog.mobile-menu[open]')
         await menu.waitFor()
         check(`[${engineName}] ${label} เมนูมือถือ: มีเอกสาร ทีมงาน บัญชี และปุ่มออกจากระบบ เลื่อนพื้นหลังไม่ได้`,
-          (await menu.getByRole('link', { name: 'เอกสาร' }).getAttribute('aria-current')) === 'page' && (await menu.getByRole('link', { name: 'ทีมงาน' }).isVisible()) &&
+          (await menu.getByRole('link', { name: 'ไฟล์ชมรม' }).getAttribute('aria-current')) === 'page' && (await menu.getByRole('link', { name: 'ทีมงาน' }).isVisible()) &&
           (await menu.getByRole('button', { name: 'ออกจากระบบ' }).count()) === 1 && (await p.evaluate(() => getComputedStyle(document.documentElement).overflow === 'hidden')))
         if (shots) {
           await p.waitForTimeout(300) // รอแผงเมนูเลื่อนเข้าจนสุดก่อนถ่ายภาพ
@@ -1148,7 +1175,7 @@ try {
 
   // ================= 8.1 พอร์ทัลหน้าแรก: ทางลัดตามสิทธิ์ ปฏิทินหน้าแรก ธีม และ breakpoint ของเมนู =================
   const THEME_KEY = 'mu-esport-staff:theme:v1'
-  const SHORTCUTS = ['สมาชิก', 'เอกสาร', 'ปฏิทินชมรม', 'แหล่งข้อมูล']
+  const SHORTCUTS = ['สมาชิก', 'ไฟล์ชมรม', 'ปฏิทินชมรม', 'แหล่งข้อมูล']
   for (const [who, actor, token] of [['staff', actors.a, 1], ['admin', actors.admin, 0]]) {
     const p = await newPage(1440, 900, actor, token)
     await p.goto(`${BASE}/`)
@@ -1267,7 +1294,7 @@ try {
     await p.keyboard.press('Escape')
     await p.locator('dialog[open]').waitFor({ state: 'detached' })
     await mockDocuments(p, mockState())
-    await p.goto(`${BASE}/documents/doc-1`)
+    await p.goto(`${BASE}/documents/doc-1/edit`)
     await p.locator('#document-text').waitFor()
     check('[จำลอง] ธีมมืด: editor ใช้พื้นของธีมมืด ชื่อยังอ่านอย่างเดียว',
       (await p.locator('#document-text').evaluate((el) => getComputedStyle(el).backgroundColor)) === dark.panel &&
@@ -1425,7 +1452,6 @@ try {
           const hasDraft = path === '/documents/new'
           if (hasDraft) {
             await p.locator('#document-title').fill('ร่างระหว่างออกจากระบบ')
-            await p.locator('#document-text').fill('เนื้อหาร่าง')
           }
           await arrange(p)
           if (modeName === 'ยืนยันสถานะไม่ได้') await p.route('**/api/session', (route) => route.abort('failed'))
@@ -1455,10 +1481,10 @@ try {
           // control เดิมของหน้ายังใช้งานได้จริง
           let works = false
           if (path === '/documents/new') {
-            const back = p.getByRole('link', { name: 'รายการเอกสาร' })
+            const back = p.locator('#main').getByRole('link', { name: 'ไฟล์ชมรม', exact: true })
             await back.focus()
-            works = (await inViewport(back)) && (await p.evaluate(() => document.activeElement?.textContent?.includes('รายการเอกสาร'))) &&
-              (await p.locator('#document-title').inputValue()) === 'ร่างระหว่างออกจากระบบ' && (await p.locator('#document-text').inputValue()) === 'เนื้อหาร่าง'
+            works = (await inViewport(back)) && (await p.evaluate(() => document.activeElement?.textContent?.includes('ไฟล์ชมรม'))) &&
+              (await p.locator('#document-title').inputValue()) === 'ร่างระหว่างออกจากระบบ' && (await p.locator('#document-text').count()) === 0
           } else if (path === '/members') {
             await p.getByRole('button', { name: 'เพิ่มสมาชิก' }).first().click()
             works = await appears(p.locator('#member-name'))
@@ -1510,15 +1536,17 @@ try {
       const tag = `[จำลอง 401] เซสชันหมดอายุ ${label}${dark ? ' ธีมมืด' : ''}`
       const narrow = width < 1024
       const p = await newPage(width, height, actors.a, 1)
-      await p.goto(`${BASE}/documents/new`)
+      await mockDocuments(p, mockState())
+      await p.goto(`${BASE}/documents/doc-1/edit`)
       const draftText = Array.from({ length: 60 }, (_, i) => `บรรทัดร่างที่ ${i + 1}`).join('\n')
-      await p.locator('#document-title').fill('ร่างตอนเซสชันหมดอายุ')
+      await p.locator('#document-text').waitFor()
+      const draftTitle = await p.locator('#document-title').inputValue()
       await p.locator('#document-text').fill(draftText)
       await p.locator('#document-text').evaluate((el) => { el.style.height = '900px' })
       await p.evaluate(() => { window.__sameDocument = true })
       if (dark) await p.getByRole('switch', { name: 'ธีมมืด' }).click()
-      await p.route('**/api/documents', (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 401, json: { error: 'unauthenticated', message: 'ยังไม่ได้เข้าสู่ระบบ หรือเซสชันหมดอายุแล้ว' } }) : route.fallback()))
-      await p.getByRole('button', { name: 'สร้างเอกสาร' }).click()
+      await p.route('**/api/documents/doc-1', (route) => (route.request().method() === 'PUT' ? route.fulfill({ status: 401, json: { error: 'unauthenticated', message: 'ยังไม่ได้เข้าสู่ระบบ หรือเซสชันหมดอายุแล้ว' } }) : route.fallback()))
+      await p.getByRole('button', { name: 'บันทึก', exact: true }).click()
       const dialog = p.locator('dialog[open]', { hasText: 'เซสชันหมดอายุ' })
       await dialog.waitFor()
       await dialog.getByRole('button', { name: 'ปิดไว้ก่อน' }).click()
@@ -1578,7 +1606,7 @@ try {
       check(`${tag}: ยังเปิดเมนู/สลับธีมได้ เลือกคัดลอกร่างได้ครบ และ focus จากคีย์บอร์ดไม่ถูกหัวเว็บหรือแถบเตือนบัง`,
         menuOk && themeToggled && selected === draftText && hidden === 0, `ถูกบัง ${hidden}`)
 
-      await p.unroute('**/api/documents')
+      await p.unroute('**/api/documents/doc-1')
       await p.locator('.session-banner').getByRole('button', { name: 'เข้าสู่ระบบอีกครั้ง' }).click()
       const reopened = await appears(dialog)
       await dialog.getByRole('button', { name: 'เข้าสู่ระบบแล้ว ทำงานต่อ' }).click()
@@ -1590,7 +1618,7 @@ try {
         bar: Math.ceil(document.querySelector('.topbar').getBoundingClientRect().height), title: document.querySelector('#document-title').value, text: document.querySelector('#document-text').value,
       }))
       check(`${tag}: เปิด dialog กลับจากแถบเตือนได้ ตรวจสำเร็จแล้วแถบหาย พื้นที่ด้านบนกลับเท่าหัวเว็บ หน้าไม่ถูกโหลดใหม่และร่างยังอยู่`,
-        reopened && resumed && after.same && after.stickyVar === after.bar && after.title === 'ร่างตอนเซสชันหมดอายุ' && after.text === draftText, JSON.stringify({ ...after, text: after.text.length }))
+        reopened && resumed && after.same && after.stickyVar === after.bar && after.title === draftTitle && after.text === draftText, JSON.stringify({ ...after, text: after.text.length }))
       await p.context().close()
     }
     ignoreErrorsSince(errorsBeforeExpired)
@@ -1610,7 +1638,7 @@ try {
       ['เพิ่มกำหนดการ (ปฏิทิน)', '/calendar', (q) => q.locator('.page-header').getByRole('button', { name: 'เพิ่มกำหนดการ' }), null],
       ['เพิ่มกำหนดการ (ใน dialog)', '/calendar', (q) => q.locator('dialog[open]').getByRole('button', { name: 'เพิ่มกำหนดการ' }), (q) => q.locator('.page-header').getByRole('button', { name: 'เพิ่มกำหนดการ' }).click()],
       ['สร้างเอกสาร', '/documents/new', (q) => q.getByRole('button', { name: 'สร้างเอกสาร' }), null],
-      ['บันทึก (editor)', '/documents/doc-1', (q) => q.getByRole('button', { name: 'บันทึก', exact: true }), (q) => q.locator('#document-text').pressSequentially(' แก้')],
+      ['บันทึก (editor)', '/documents/doc-1/edit', (q) => q.getByRole('button', { name: 'บันทึก', exact: true }), (q) => q.locator('#document-text').pressSequentially(' แก้')],
     ]
     for (const theme of ['light', 'dark']) {
       const rows = []
@@ -2048,7 +2076,8 @@ try {
         const p = await newPage(1280, 800, actor, actor === actors.a ? 1 : 0)
         await p.goto(`${BASE}/forms`)
         check(`[จริง] ฟอร์ม (${who}) ยังไม่ได้เชื่อม: บอกว่ายังไม่ได้เชื่อม Google Forms ไม่มีคำถามหรือคำตอบแสดง และทางไปตั้งค่ามีเฉพาะผู้ดูแล`,
-          (await appears(p.getByText('ยังไม่ได้เชื่อม Google Forms').first())) && (await p.locator('.form-item, .response-row').count()) === 0 &&
+          // SyncBar can show the same phrase while the form page is still loading.
+          (await appears(p.locator('.empty-state-title', { hasText: 'ยังไม่ได้เชื่อม Google Forms' }))) && (await p.locator('.form-item, .response-row').count()) === 0 &&
           (await p.getByRole('link', { name: 'ไปตั้งค่าที่หน้าแหล่งข้อมูล' }).count()) === (who === 'ผู้ดูแล' ? 1 : 0))
         await p.context().close()
       }
@@ -2208,7 +2237,7 @@ try {
       let reads = 0
       await p.route('**/api/documents/doc-1', (route) => (reads++, route.fulfill({ json: { document: info, content: { text: remote.text, revisionId: `rev-${remote.revision}`, editable: true, reasons: [] } } })))
       await p.route('**/api/documents/doc-1/revision', (route) => route.fulfill({ json: { revisionId: `rev-${remote.revision}`, title: info.title } }))
-      await p.goto(`${BASE}/documents/doc-1`)
+      await p.goto(`${BASE}/documents/doc-1/edit`)
       const editor = p.locator('#document-text')
       await editor.waitFor()
       const poll = () => p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')))

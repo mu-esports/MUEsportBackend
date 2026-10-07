@@ -421,7 +421,7 @@ async function updateInfo(ctx: Ctx): Promise<Response> {
     () => ({ updateFormInfo: { info: { title, description }, updateMask: 'title,description' } }),
     (form) => (form.info?.title ?? '') === title && (form.info?.description ?? '') === description,
   )
-  return json({ ...(await view(ctx.env, ctx.session!.user.role === 'admin')), verified: result.verified })
+  return json({ ...(await view(ctx.env, (ctx.session?.kind === 'staff' && ctx.session.user.role === 'admin'))), verified: result.verified })
 }
 
 function questionInput(body: Record<string, unknown>, kind: string) {
@@ -479,7 +479,7 @@ async function updateItem(ctx: Ctx, itemId: string): Promise<Response> {
     },
     (form) => sameQuestion(((form.items ?? []) as GItem[]).find((item) => item.itemId === itemId), kind, input, withOther),
   )
-  return json({ ...(await view(ctx.env, ctx.session!.user.role === 'admin')), verified: result.verified })
+  return json({ ...(await view(ctx.env, (ctx.session?.kind === 'staff' && ctx.session.user.role === 'admin'))), verified: result.verified })
 }
 
 async function createItem(ctx: Ctx): Promise<Response> {
@@ -505,7 +505,7 @@ async function createItem(ctx: Ctx): Promise<Response> {
       return items.length === countBefore + 1 && sameQuestion(items[items.length - 1], kind, input, false)
     },
   )
-  return json({ ...(await view(ctx.env, ctx.session!.user.role === 'admin')), verified: result.verified }, 201)
+  return json({ ...(await view(ctx.env, (ctx.session?.kind === 'staff' && ctx.session.user.role === 'admin'))), verified: result.verified }, 201)
 }
 
 // ---------- คำตอบ → สมาชิก ----------

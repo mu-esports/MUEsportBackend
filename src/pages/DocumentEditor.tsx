@@ -319,11 +319,11 @@ function Editor({ id }: { id?: string }) {
   const header = (
     <PageHeader
       title={isNew ? 'สร้างเอกสาร' : (info?.title ?? 'เอกสาร')}
-      description={isNew ? 'เอกสารข้อความพื้นฐาน จะถูกสร้างเป็น Google Docs ในบัญชีของชมรม' : 'เนื้อหาโหลดจาก Google Docs ของชมรม'}
+      description={isNew ? 'เอกสารข้อความพื้นฐาน จะถูกสร้างเป็น Google Docs ในบัญชีของชมรม' : 'แก้ข้อความล้วนในเว็บ เนื้อหาโหลดจาก Google Docs ของชมรม (การจัดรูปแบบทำใน Google Docs)'}
       action={
-        <Link to="/documents" className="button">
+        <Link to={info ? `/files/${encodeURIComponent(info.googleId)}` : '/files'} className="button">
           <ArrowLeft aria-hidden="true" size={18} />
-          รายการเอกสาร
+          {info ? 'ตัวอย่างเอกสาร' : 'ไฟล์ชมรม'}
         </Link>
       }
     />
@@ -361,8 +361,8 @@ function Editor({ id }: { id?: string }) {
                 ดูสถานะการเชื่อม Google
               </Link>
             )}
-            <Link to="/documents" className="button">
-              กลับไปรายการเอกสาร
+            <Link to="/files" className="button">
+              กลับไปไฟล์ชมรม
             </Link>
           </div>
         </div>
@@ -538,7 +538,7 @@ function Editor({ id }: { id?: string }) {
                 โหลดฉบับล่าสุด
               </button>
             )}
-            <Link to="/documents" className="button">
+            <Link to={info ? `/files/${encodeURIComponent(info.googleId)}` : '/files'} className="button">
               {dirty ? 'ยกเลิก' : 'กลับ'}
             </Link>
             {editable && (

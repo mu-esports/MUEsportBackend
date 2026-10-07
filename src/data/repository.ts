@@ -62,7 +62,8 @@ function readDemo(): AppData {
   if (!isAppData(parsed)) throw new Error('รูปแบบข้อมูลที่เก็บไว้ไม่ถูกต้อง')
   // ข้อมูลที่เก็บไว้ก่อนมี version ถือเป็นรุ่น 1
   return {
-    members: parsed.members.map((m) => ({ ...m, version: m.version ?? 1 })),
+    // ข้อมูลที่เก็บไว้ก่อนมีรหัสนักศึกษาถือว่ายังไม่ได้กรอก
+    members: parsed.members.map((m) => ({ ...m, version: m.version ?? 1, studentId: m.studentId ?? '' })),
     events: parsed.events.map((e) => ({ ...e, version: e.version ?? 1 })),
   }
 }
@@ -85,17 +86,26 @@ function replaceItem<T extends { id: string; version: number }>(items: T[], id: 
   return [items.map((item) => (item.id === id ? next : item)), next]
 }
 
+/** รหัสนักศึกษาต้องไม่ซ้ำกับสมาชิกคนอื่น (เหมือนที่ระบบกลางตรวจ) */
+function assertStudentIdFree(members: Member[], studentId: string, exceptId = '') {
+  if (!studentId) return
+  const other = members.find((m) => m.id !== exceptId && m.studentId.toLowerCase() === studentId.toLowerCase())
+  if (other) throw new AppError('student_id_taken', 409, `รหัสนักศึกษานี้มีสมาชิกคนอื่นใช้อยู่แล้ว (${other.name}) ยังไม่ได้บันทึก ตรวจรหัสให้ถูกต้องก่อนบันทึกอีกครั้ง`, { field: 'studentId' })
+}
+
 const demoRepository: DataRepository = {
   listMembers: async () => readDemo().members,
   listEvents: async () => readDemo().events,
   async createMember(input) {
     const data = readDemo()
+    assertStudentIdFree(data.members, input.studentId)
     const member: Member = { ...input, id: crypto.randomUUID(), addedAt: today(), version: 1 }
     writeDemo({ ...data, members: [...data.members, member] })
     return member
   },
   async updateMember(id, input, expectedVersion) {
     const data = readDemo()
+    assertStudentIdFree(data.members, input.studentId, id)
     const [members, member] = replaceItem(data.members, id, expectedVersion, (m) => ({ ...m, ...input }))
     writeDemo({ ...data, members })
     return member

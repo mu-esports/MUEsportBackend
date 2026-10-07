@@ -7,12 +7,19 @@ import {
 } from './google'
 import type { GoogleIdentity } from './google'
 import { cookie, HttpError, isHttps, json, parseCookies, readJson, redirect } from './http'
-import { audit, clearSessionCookie, createSession, deleteSession, requireMutation } from './session'
+import { logout, memberLogin } from './accounts'
+import { audit, createSession, deleteSession, requireMutation } from './session'
 
 const STATE_COOKIE = 'mu_oauth'
 const STATE_TTL_SECONDS = 10 * 60
 
 type Purpose = 'login' | 'connect'
+
+/** หน้าที่ผู้ดูแลกลับไปได้หลังอนุญาตสิทธิ์ของบัญชีชมรม */
+const CONNECT_RETURN_PATHS = ['/sources', '/files']
+
+/** หลังเข้าสู่ระบบด้วย Google ทีมงานกลับไปได้เฉพาะหน้าหลังบ้าน ไม่ใช่หน้าของบัญชีสมาชิก */
+const staffReturnPath = (path: string) => (path === '/member' || path.startsWith('/member/') || path.startsWith('/member?') ? '/' : path)
 
 /** return URL รับเฉพาะ path ภายในเว็บ กันการพาไปเว็บอื่นหลังเข้าสู่ระบบ */
 export function safeReturnPath(value: string | null): string {
@@ -77,14 +84,21 @@ export async function startConnect(ctx: Ctx): Promise<Response> {
   }
   // ขอสิทธิ์ของบริการเพิ่มทีละส่วนตามที่ผู้ดูแลเลือก (include_granted_scopes คงสิทธิ์เดิมไว้)
   let extra: string[] = []
+  let returnPath = '/sources'
   if ((ctx.request.headers.get('Content-Type') ?? '').toLowerCase().startsWith('application/json')) {
-    const service = (await readJson(ctx.request)).service
+    const body = await readJson(ctx.request)
+    const service = body.service
+    // หน้าที่กลับไปหลังอนุญาต: รับเฉพาะค่าที่กำหนดไว้ ไม่รับ path อิสระจากเบราว์เซอร์
+    if (body.returnTo !== undefined) {
+      if (typeof body.returnTo !== 'string' || !CONNECT_RETURN_PATHS.includes(body.returnTo)) throw new HttpError(422, 'validation_failed', 'หน้าที่จะกลับไปหลังอนุญาตไม่ถูกต้อง')
+      returnPath = body.returnTo
+    }
     if (service !== undefined) {
       if (typeof service !== 'string' || !(service in SERVICE_SCOPES)) throw new HttpError(422, 'validation_failed', 'ไม่รู้จักบริการที่ขอสิทธิ์')
       extra = SERVICE_SCOPES[service]
     }
   }
-  const { authUrl, stateCookie } = await startFlow(ctx, 'connect', '/sources', session.user.id, extra)
+  const { authUrl, stateCookie } = await startFlow(ctx, 'connect', returnPath, session.user.id, extra)
   return json({ authUrl }, 200, { 'Set-Cookie': stateCookie })
 }
 
@@ -120,7 +134,8 @@ async function callback(ctx: Ctx): Promise<Response> {
   const browser = parseCookies(ctx.request)[STATE_COOKIE]
   if (!browser || (await sha256Hex(browser)) !== row.browser_hash) return fail('state_invalid')
 
-  const connectFail = (code: string) => redirect(`/sources?google=${code}`, [clear])
+  const connectPath = CONNECT_RETURN_PATHS.includes(row.return_path) ? row.return_path : '/sources'
+  const connectFail = (code: string) => redirect(`${connectPath}?google=${code}`, [clear])
   const failFor = row.purpose === 'connect' ? connectFail : fail
 
   if (url.searchParams.get('error')) return failFor(row.purpose === 'connect' ? 'cancelled' : 'google_denied')
@@ -139,7 +154,7 @@ async function callback(ctx: Ctx): Promise<Response> {
 
   if (row.purpose === 'connect') {
     // ต้องเป็นผู้ดูแลคนเดิมที่เริ่มขั้นตอน และบัญชีที่อนุญาตต้องเป็นบัญชีชมรมที่ Google ยืนยันอีเมลแล้ว
-    if (!ctx.session || ctx.session.user.role !== 'admin' || ctx.session.user.id !== row.user_id) return connectFail('forbidden')
+    if (!ctx.session || ctx.session.kind !== 'staff' || ctx.session.user.role !== 'admin' || ctx.session.user.id !== row.user_id) return connectFail('forbidden')
     if (!identity.emailVerified || identity.email !== clubEmail(env)) {
       await audit(env, ctx.session.user.id, 'google.connect_rejected', 'club', 'wrong_account')
       return connectFail('wrong_account')
@@ -153,7 +168,9 @@ async function callback(ctx: Ctx): Promise<Response> {
 
   const userId = await resolveUser(env, identity)
   if (!userId) return redirect('/access-denied', [clear])
-  return redirect(row.return_path, [clear, await createSession(env, userId, url)])
+  // session เดิมที่เบราว์เซอร์นี้ถืออยู่ (ของทีมงานหรือของสมาชิก) ถูกยกเลิกเมื่อเข้าสู่ระบบใหม่
+  if (ctx.session) await deleteSession(env, ctx.session)
+  return redirect(staffReturnPath(row.return_path), [clear, await createSession(env, userId, url)])
 }
 
 /**
@@ -201,18 +218,12 @@ async function resolveUser(env: AppEnv, identity: GoogleIdentity): Promise<strin
   return user.id
 }
 
-/** POST /auth/logout — ออกจากระบบเฉพาะทีมงานคนนี้ ไม่ตัดการเชื่อม Google ของชมรม */
-async function logout(ctx: Ctx): Promise<Response> {
-  const session = await requireMutation(ctx)
-  await deleteSession(ctx.env, session.tokenHash)
-  return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie(ctx.url) })
-}
-
 export async function handleAuth(ctx: Ctx): Promise<Response> {
   const { pathname } = ctx.url
   const method = ctx.request.method
   if (pathname === '/auth/login' && method === 'GET') return login(ctx)
   if (pathname === '/auth/google/callback' && method === 'GET') return callback(ctx)
   if (pathname === '/auth/logout' && method === 'POST') return logout(ctx)
+  if (pathname === '/auth/member/login' && method === 'POST') return memberLogin(ctx)
   throw new HttpError(404, 'not_found', 'ไม่พบเส้นทางนี้')
 }

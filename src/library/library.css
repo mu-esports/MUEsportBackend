@@ -1,0 +1,230 @@
+/* ---------- คลังไฟล์ชมรมและตัวอย่างไฟล์ ---------- */
+/* ใช้ร่วมกันทั้งหลังบ้านและหน้าสมาชิก จึงอ้างเฉพาะ token สี: ได้ชุดสีของแต่ละฝั่งเอง (รวมธีมมืดของหลังบ้าน) */
+
+.file-library { display: grid; gap: 12px; min-width: 0; }
+.file-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+/* ช่องค้นหากับปุ่มค้นหาเป็นกลุ่มเดียว: เมื่อแถบเครื่องมือห่อบรรทัดในจอแคบ ปุ่มยังอยู่ข้างช่องค้นหา */
+.file-search { display: flex; flex: 1 1 320px; align-items: flex-end; gap: 12px; min-width: 0; }
+.file-search .search-field { flex: 1 1 0%; min-width: 0; }
+.file-search .button { flex: none; }
+.file-toolbar .toolbar-filter { flex: 1 1 150px; max-width: 220px; }
+.file-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.file-status .result-count { margin: 0; }
+
+/* ปุ่มที่กำลังทำงาน: ยังรับ focus ได้ (ไม่ใช้ disabled) และบอกสถานะด้วยข้อความในปุ่ม */
+.button[aria-disabled='true'] { opacity: 0.7; cursor: progress; }
+
+.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.file-grid-compact { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.file-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.file-card:hover { border-color: var(--accent-line); }
+.file-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.file-icon-sheet { background: var(--success-bg); color: var(--success-text); }
+.file-icon-slides, .file-icon-form { background: var(--warning-bg); color: var(--warning-text); }
+.file-icon-pdf { background: var(--danger-bg); color: var(--danger-text); }
+.file-icon-image, .file-icon-video, .file-icon-audio, .file-icon-other, .file-icon-folder { background: var(--neutral-bg); color: var(--neutral-text); }
+.file-main { display: grid; gap: 4px; flex: 1; min-width: 0; }
+/* ชื่อยาวตัดที่สองบรรทัด ชื่อเต็มอยู่ใน title และในหน้าตัวอย่าง */
+.file-name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+/* ทั้งการ์ดเป็นพื้นที่กดของลิงก์ชื่อไฟล์ (สูงเกิน 44px เสมอ) */
+.file-name::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.file-card:hover .file-name { color: var(--accent-text); }
+.file-name:focus-visible { outline: none; }
+.file-name:focus-visible::after { outline: 3px solid var(--focus); outline-offset: 2px; }
+.file-meta { display: flex; flex-wrap: wrap; gap: 0 12px; color: var(--text-muted); font-size: 0.8125rem; }
+.file-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--neutral-bg);
+  color: var(--neutral-text);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.file-tag-text { max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-more { display: grid; justify-items: center; gap: 4px; padding-top: 8px; text-align: center; }
+
+/* ---------- หน้าตัวอย่างไฟล์ ---------- */
+.file-preview { display: grid; gap: 12px; min-width: 0; }
+.preview-back { width: fit-content; min-height: 44px; }
+.preview-head { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.preview-heading { display: grid; gap: 4px; min-width: 0; }
+.preview-title { font-size: 1.375rem; line-height: 1.4; overflow-wrap: anywhere; }
+.preview-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.preview-note { max-width: 80ch; }
+
+/* กล่องแสดงเนื้อหากล่องเดียวของหน้า */
+.viewer-box {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+}
+.viewer-box > .state-block, .viewer-box .state-block { border: 0; border-radius: 0; background: var(--surface); }
+.viewer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+.viewer-bar .toolbar-filter { display: flex; flex: 0 1 320px; align-items: center; gap: 8px; min-width: 0; }
+.viewer-bar .toolbar-filter select { min-width: 0; }
+.viewer-zoom { display: flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.viewer-zoom span { min-width: 4ch; text-align: center; }
+.viewer-zoom .icon-button:disabled { opacity: 0.4; }
+
+/* PDF: หน้าพอดีความกว้างของกล่องที่ขนาด 100% และเลื่อนแนวนอนได้เมื่อขยาย */
+.pdf-frame { overflow-x: auto; }
+.pdf-pages { display: grid; justify-items: center; gap: 10px; width: max-content; min-width: 100%; padding: 10px 0; }
+.pdf-page { position: relative; background: #fff; box-shadow: 0 1px 3px rgb(15 23 42 / 0.2); }
+.pdf-page canvas { display: block; width: 100%; height: 100%; }
+.pdf-page-error { position: absolute; inset: 0; display: grid; place-items: center; color: #475569; font-size: 0.875rem; }
+
+.image-viewer { display: grid; place-items: center; }
+.image-viewer img { display: block; max-width: 100%; height: auto; margin: 12px; background: #fff; }
+.image-viewer img[hidden] { display: none; }
+
+/* ตารางของ Google Sheets: หัวคอลัมน์และเลขแถวเกาะอยู่ขณะเลื่อน */
+.sheet-viewer { background: var(--surface); }
+.sheet-range { flex: 1 1 280px; min-width: 0; color: var(--text-muted); }
+.sheet-wrap { max-height: min(72vh, 720px); overflow: auto; }
+.sheet-table { border-collapse: separate; border-spacing: 0; font-size: 0.875rem; }
+.sheet-table th, .sheet-table td {
+  padding: 4px 8px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.sheet-table td { min-width: 6ch; max-width: 32ch; overflow-wrap: anywhere; white-space: pre-wrap; }
+.sheet-table thead th { position: sticky; top: 0; z-index: 2; background: var(--surface-muted); color: var(--text-muted); font-weight: 500; text-align: center; }
+.sheet-table tbody th { position: sticky; left: 0; z-index: 1; min-width: 5ch; background: var(--surface-muted); color: var(--text-muted); font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+.sheet-table .sheet-corner { left: 0; z-index: 3; }
+.sheet-empty { padding: 16px; color: var(--text-muted); }
+.sheet-viewer .file-more, .sheet-viewer .form-alert { margin: 12px; }
+
+.form-viewer { display: grid; gap: 12px; padding: 16px; background: var(--surface); }
+.form-viewer-title { font-size: 1.25rem; overflow-wrap: anywhere; }
+.form-viewer-open { display: grid; gap: 4px; justify-items: start; }
+.form-items { display: grid; gap: 8px; }
+.form-item { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.form-item-section { background: var(--surface-muted); }
+.form-item-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-weight: 600; overflow-wrap: anywhere; }
+.form-item-kind, .form-item-rows { color: var(--text-muted); font-size: 0.8125rem; }
+.form-item-options { display: grid; gap: 2px; padding-left: 22px; list-style: circle; overflow-wrap: anywhere; }
+
+.text-viewer { display: grid; gap: 12px; padding: 12px; background: var(--surface); }
+.text-preview {
+  max-height: min(75vh, 760px);
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'IBM Plex Sans Thai', monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ---------- ช่องรหัสผ่านพร้อมปุ่มแสดง/ซ่อน ---------- */
+.password-input { position: relative; }
+.password-input input {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 50px 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.password-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+}
+.password-toggle:hover { background: var(--surface-muted); color: var(--text); }
+.password-toggle:focus-visible { outline-offset: -3px; }
+
+/* ---------- หลังบ้าน: ไฟล์ชมรม บัญชีสมาชิก และเมนู ---------- */
+.nav-group { margin: 12px 12px 4px; color: var(--text-muted); font-size: 0.8125rem; font-weight: 600; }
+.nav-group + .nav-list { padding-top: 4px; border-top: 1px solid var(--border); }
+.member-student-id { display: block; color: var(--text-muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.inline-icon { vertical-align: -3px; color: var(--success-text); }
+.link-button { min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--accent-text); font-weight: 500; text-decoration: underline; }
+.picker-note { margin-top: 8px; }
+
+.library-visibility { margin-bottom: var(--space-4); }
+.library-setup .field-hint { max-width: 60ch; }
+.library-card { display: grid; gap: 12px; margin-bottom: 20px; }
+.library-card .card-header { margin-bottom: 0; }
+.library-card h2 { display: flex; align-items: center; gap: 8px; }
+.registered-docs { display: grid; gap: 8px; margin-top: 16px; }
+.create-done { display: grid; gap: 12px; }
+.create-done h2 { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.create-done h2 svg { color: var(--success-text); }
+
+.account-section { display: grid; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.account-section h3 { display: flex; align-items: center; gap: 8px; }
+.account-section h3 svg { color: var(--accent-text); }
+.account-identity { padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.account-login-id { font-size: 1.125rem; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.account-generate { display: grid; gap: 4px; justify-items: start; }
+.account-temp { display: grid; gap: 6px; justify-items: start; padding: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.account-temp-label { color: var(--text-muted); font-size: 0.875rem; }
+.account-temp-value { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 1.25rem; font-weight: 600; letter-spacing: 0.04em; user-select: all; }
+
+@media (max-width: 767px) {
+  .file-toolbar .toolbar-filter { max-width: none; }
+  .preview-title { font-size: 1.25rem; }
+  .preview-actions .button { flex: 1 1 auto; }
+  .sheet-wrap { max-height: 65vh; }
+}

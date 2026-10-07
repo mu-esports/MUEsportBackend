@@ -52,7 +52,7 @@ describe('สร้างชุดข้อมูลชมรม', () => {
     }
     expect([ws.sheets.size, ws.calendars.size, ws.forms.size]).toEqual([1, 1, 1])
     const sheet = [...ws.sheets.values()][0]
-    expect(sheet.tabs[0].cells).toEqual([['รหัสสมาชิก (ระบบใช้จับคู่ ห้ามแก้)', 'ชื่อ', 'ชื่อเล่น', 'บทบาท', 'สถานะ', 'ช่องทางติดต่อ', 'หมายเหตุ', 'วันที่เพิ่ม']])
+    expect(sheet.tabs[0].cells).toEqual([['รหัสสมาชิก (ระบบใช้จับคู่ ห้ามแก้)', 'ชื่อ', 'ชื่อเล่น', 'บทบาท', 'สถานะ', 'ช่องทางติดต่อ', 'หมายเหตุ', 'วันที่เพิ่ม', 'รหัสนักศึกษา']])
     const form = [...ws.forms.values()][0]
     expect(form.items.map((i) => i.title)).toEqual(['ชื่อ-นามสกุล', 'ชื่อเล่น', 'ช่องทางติดต่อ (เช่น ชื่อ Discord หรืออีเมล)', 'หมายเหตุ'])
     const view = await data(await call('/api/forms', { as: admin }))
@@ -114,7 +114,7 @@ describe('OAuth scopes ของบริการ', () => {
   it('ยังไม่ได้รับสิทธิ์ Calendar: สร้าง/เลือกปฏิทินไม่ได้ และสถานะบอกตามจริง โดย Docs/Sheets ยังใช้ได้', async () => {
     await connectClub(google, DRIVE_ONLY)
     const overview = await data(await call('/api/setup', { as: admin }))
-    expect(overview.scopes).toEqual({ driveFile: true, calendarCreated: false, calendarExisting: false })
+    expect(overview.scopes).toEqual({ driveFile: true, calendarCreated: false, calendarExisting: false, library: false })
     const refused = await create('calendar', 'กำหนดการ')
     expect(refused.status).toBe(409)
     expect((await data(refused)).error).toBe('missing_scope')

@@ -23,5 +23,8 @@ token*.json
 
 # ภาพและผลจากชุดตรวจ UI: สร้างใหม่ได้ในเครื่อง ไม่รวมในการเผยแพร่ repository
 screenshots/
+
+# ไฟล์ประกอบของตัวแสดง PDF: คัดลอกจาก node_modules ตอนรัน vite (ดู vite.config.ts)
+public/pdfjs/
 screenshots-private/
 test-results/

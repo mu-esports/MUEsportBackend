@@ -5,6 +5,8 @@ import '@fontsource/ibm-plex-sans-thai/400.css'
 import '@fontsource/ibm-plex-sans-thai/500.css'
 import '@fontsource/ibm-plex-sans-thai/600.css'
 import './styles.css'
+import './library/library.css'
+import './member/member.css'
 import { router } from './App'
 import { applyTheme, storedTheme } from './theme'
 

@@ -19,6 +19,25 @@ export function text(body: Record<string, unknown>, field: string, label: string
   return value
 }
 
+/**
+ * รหัสนักศึกษา: เก็บเป็นข้อความตามที่กรอก (คงเลขศูนย์นำหน้า) ไม่กำหนดความยาวตายตัว
+ * รับตัวเลข อักษรอังกฤษ และ - _ . ระหว่างตัวอักษร ยาว 1–32 ตัว ไม่มีช่องว่าง เทียบซ้ำโดยไม่สนตัวพิมพ์เล็กใหญ่
+ */
+export const STUDENT_ID_MAX = 32
+const STUDENT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,30}[A-Za-z0-9])?$/
+export const isStudentId = (value: string) => STUDENT_ID_PATTERN.test(value)
+export const STUDENT_ID_RULE = 'ใช้ได้เฉพาะตัวเลข ตัวอักษรอังกฤษ และเครื่องหมาย - _ . คั่นกลาง ไม่มีช่องว่าง ยาวไม่เกิน 32 ตัวอักษร'
+
+/** รหัสนักศึกษาจากฟอร์ม: ว่างได้ (ยังไม่ได้กรอก) ถ้ากรอกต้องถูกรูปแบบ */
+export function studentIdField(body: Record<string, unknown>, field = 'studentId'): string {
+  const raw = body[field]
+  if (raw === undefined || raw === null) return ''
+  if (typeof raw !== 'string') throw invalid('รหัสนักศึกษาไม่ถูกต้อง', field)
+  const value = raw.trim()
+  if (value && !isStudentId(value)) throw invalid(`รหัสนักศึกษา${STUDENT_ID_RULE}`, field)
+  return value
+}
+
 export function oneOf<T extends string>(body: Record<string, unknown>, field: string, label: string, allowed: readonly T[]): T {
   const raw = body[field]
   if (typeof raw !== 'string' || !allowed.includes(raw as T)) throw invalid(`${label}ไม่ถูกต้อง`, field)

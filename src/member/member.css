@@ -1,0 +1,265 @@
+/* ---------- หน้าเข้าสู่ระบบและหน้าของสมาชิก ---------- */
+/* พื้นผิวสว่างชุดเดียวเสมอ: ไฟล์นี้โหลดหลัง styles.css และกำหนด token ครบทุกตัว จึงไม่รับค่าจากธีมมืดของหลังบ้าน
+   primary #1D4ED8 · พื้น #F8FAFC · surface ขาว · ข้อความ #0F172A · ข้อความรอง #475569 · เส้น #E2E8F0
+   ขอบของช่องกรอกและปุ่มใช้ #64748B (4.8:1 บนพื้นขาว) เพื่อให้เห็นขอบเขตชัด ส่วนเส้นแบ่งการ์ดใช้ #E2E8F0 */
+:root[data-surface='member'] {
+  color-scheme: light;
+
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --border: #e2e8f0;
+  --border-strong: #64748b;
+
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-active: #1e3a8a;
+  --accent-text: #1d4ed8;
+  --accent-soft: #dbeafe;
+  --accent-line: #1d4ed8;
+  --hover: #c7dcfc;
+  --focus: #0f172a;
+
+  --success-text: #166534;
+  --success-bg: #e2f4e8;
+  --success-border: #b7e0c4;
+  --warning-text: #7a4a06;
+  --warning-bg: #fdf3d7;
+  --warning-border: #e6cf8c;
+  --danger: #b42318;
+  --danger-hover: #912018;
+  --danger-text: #a01f15;
+  --danger-bg: #fdeceb;
+  --danger-border: #f0b3ad;
+  --neutral-bg: #e7ecf3;
+  --neutral-text: #334155;
+  --toast-bg: #14532d;
+  --toast-error-bg: #912018;
+  --backdrop: rgb(15 23 42 / 0.5);
+
+  --radius: 10px;
+  --radius-lg: 12px;
+  --shadow-lg: 0 12px 32px rgb(15 23 42 / 0.16);
+  --m-shadow: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.05);
+  --m-header-height: 60px;
+  --m-tabbar-height: 64px;
+  --header-height: 60px;
+}
+
+/* พื้นที่กดอย่างน้อย 44px ทุกความกว้างของจอ (รวมปุ่มขนาดเล็กและปุ่มปิดข้อความแจ้งผล) */
+:root[data-surface='member'] .button-small { min-height: 44px; }
+:root[data-surface='member'] .toast .icon-button { width: 44px; height: 44px; }
+
+/* ---------- โครงหน้า ---------- */
+.member-app { display: flex; flex-direction: column; min-height: 100dvh; background: var(--bg); }
+
+.m-header { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid var(--border); background: var(--surface); }
+.m-header-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 1168px;
+  min-height: var(--m-header-height);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.m-brand { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; color: var(--text); font-size: 1.125rem; font-weight: 600; text-decoration: none; }
+.m-logo { display: grid; place-items: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; background: var(--accent); color: #fff; }
+.m-brand-name { white-space: nowrap; }
+
+.m-nav { display: flex; gap: 4px; margin-left: 12px; }
+.m-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.m-nav-link:hover { background: var(--surface-muted); color: var(--text); }
+/* หน้าปัจจุบัน: พื้นน้ำเงินอ่อน ตัวหนา และเส้นใต้ ไม่ได้ใช้สีอย่างเดียว */
+.m-nav-link.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; box-shadow: inset 0 -3px 0 var(--accent); }
+
+.m-header-side { display: flex; align-items: center; gap: 12px; min-width: 0; margin-left: auto; }
+.m-user { max-width: 18ch; overflow: hidden; color: var(--text-muted); font-size: 0.9375rem; text-overflow: ellipsis; white-space: nowrap; }
+
+.m-main { flex: 1; width: 100%; max-width: 1168px; margin: 0 auto; padding: 24px 24px 48px; }
+.m-main:focus { outline: none; }
+.m-tabbar { display: none; }
+
+.m-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+.m-alert svg { margin-top: 3px; }
+
+/* ---------- ส่วนประกอบของหน้า ---------- */
+.m-page-header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px; margin-bottom: 24px; }
+.m-page-header h1 { font-size: 1.625rem; line-height: 1.4; overflow-wrap: anywhere; }
+.m-page-header p { color: var(--text-muted); }
+
+.m-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--m-shadow);
+}
+.m-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.m-card-head h2 { display: flex; align-items: center; gap: 8px; }
+.m-card-head h2 svg { color: var(--accent-text); }
+.m-card-head .text-link { min-height: 44px; }
+
+.m-home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.m-home > .m-card-link { grid-column: 1 / -1; }
+.m-card-link { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; color: var(--text); text-decoration: none; }
+.m-card-link:hover { border-color: var(--accent); }
+.m-card-link > svg { color: var(--text-muted); }
+.m-card-link-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); }
+.m-card-link-title { display: block; font-weight: 600; }
+.m-card-link-text { display: block; color: var(--text-muted); font-size: 0.875rem; }
+
+.m-event-list { display: grid; }
+.m-event { display: grid; gap: 2px; padding: 12px 0; border-top: 1px solid var(--border); }
+.m-event:first-child { padding-top: 0; border-top: 0; }
+.m-event:last-child { padding-bottom: 0; }
+.m-event-title { font-weight: 600; overflow-wrap: anywhere; }
+.m-event-meta { display: flex; align-items: flex-start; gap: 6px; color: var(--text-muted); font-size: 0.875rem; }
+.m-event-meta svg { margin-top: 3px; }
+.m-empty { color: var(--text-muted); }
+.m-inline-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-muted); }
+.m-inline-error { color: var(--danger-text); }
+
+/* กิจกรรม */
+.m-segment { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: 100%; margin-bottom: 16px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.m-segment-button { min-height: 44px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); font-weight: 500; }
+.m-segment-button:hover { background: var(--surface-muted); color: var(--text); }
+.m-segment-button[aria-pressed='true'] { background: var(--accent); color: #fff; }
+.m-month { margin-bottom: 24px; }
+.m-month-title { margin-bottom: 8px; color: var(--text-muted); font-size: 0.9375rem; }
+.m-activity-list { display: grid; gap: 8px; }
+.m-activity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--m-shadow);
+  color: var(--text);
+  text-align: left;
+}
+.m-activity:hover { border-color: var(--accent); }
+.m-activity-main { display: grid; gap: 2px; min-width: 0; }
+.m-activity-arrow { color: var(--text-muted); }
+.m-date-chip { display: grid; align-content: center; justify-items: center; width: 52px; height: 56px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); line-height: 1.25; }
+.m-date-weekday { font-size: 0.75rem; font-weight: 500; }
+.m-date-day { font-size: 1.25rem; font-weight: 600; }
+
+/* บัญชีของฉัน */
+.m-account { display: grid; gap: 24px; max-width: 760px; }
+.m-profile { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.m-profile dt { color: var(--text-muted); font-size: 0.875rem; }
+.m-profile dd { font-weight: 500; }
+.m-profile-wide { grid-column: 1 / -1; }
+.m-profile-note { display: block; color: var(--text-muted); font-size: 0.8125rem; font-weight: 400; }
+.m-contact { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.m-contact-form { display: grid; gap: 12px; font-weight: 400; }
+.m-form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.m-card-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+
+/* ---------- หน้าเข้าสู่ระบบ ---------- */
+.login-page { display: grid; justify-items: center; align-content: start; min-height: 100dvh; padding: 40px 16px 48px; background: var(--bg); }
+.login-main { display: grid; gap: 16px; width: 100%; max-width: 420px; }
+.login-brand { display: flex; align-items: center; gap: 12px; }
+.login-brand .m-logo { width: 44px; height: 44px; border-radius: 12px; }
+.login-brand-name { font-size: 1.25rem; font-weight: 600; }
+.login-title { font-size: 1.75rem; }
+.login-title:focus { outline: none; }
+.login-welcome { margin-top: -8px; color: var(--text-muted); }
+.login-card { display: grid; gap: 16px; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--m-shadow); }
+.login-card h2 { display: flex; align-items: center; gap: 8px; }
+.login-card h2 svg { color: var(--accent-text); }
+.login-card .button-large, .login-staff .button-large { width: 100%; }
+.login-forgot { color: var(--text-muted); font-size: 0.9375rem; }
+/* ส่วนของทีมงานเป็นส่วนรอง: ไม่มีกรอบการ์ด หัวข้อเล็กกว่า */
+.login-staff { display: grid; gap: 8px; padding: 8px 4px 0; }
+.login-staff h2 { font-size: 1rem; }
+.login-staff-note { color: var(--text-muted); font-size: 0.875rem; }
+
+
+/* จอแคบและ tablet แนวตั้ง: หัวเว็บสั้น เมนูสี่หน้าอยู่ด้านล่างของจอ (เมนูบนหัวเว็บต้องการความกว้างราว 900px) */
+@media (max-width: 899px) {
+  :root[data-surface='member'] { --m-header-height: 56px; --header-height: 56px; }
+  .m-header-inner { gap: 8px; padding: 0 12px 0 16px; }
+  .m-nav, .m-user { display: none; }
+  /* ปุ่มออกจากระบบบนหัวเว็บเหลือไอคอน (ชื่อปุ่มยังอ่านได้ด้วยโปรแกรมอ่านหน้าจอ) และมีปุ่มเต็มในหน้าบัญชี */
+  .m-logout { width: 44px; min-height: 44px; padding: 0; border-color: transparent; }
+  .m-logout-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* เนื้อหาเว้นที่ให้เมนูด้านล่างและขอบจอ: เลื่อนถึงปุ่มสุดท้ายของหน้าได้เสมอโดยไม่ถูกเมนูบัง */
+  .m-main { padding: 16px 16px calc(var(--m-tabbar-height) + env(safe-area-inset-bottom, 0px) + 24px); }
+  .m-page-header { margin-bottom: 16px; }
+  .m-page-header h1 { font-size: 1.375rem; }
+  .m-tabbar {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .m-tab {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 2px;
+    min-height: var(--m-tabbar-height);
+    padding: 6px 2px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.35;
+    text-align: center;
+    text-decoration: none;
+  }
+  .m-tab.active { color: var(--accent-text); font-weight: 600; box-shadow: inset 0 3px 0 var(--accent); }
+  .m-tab:focus-visible { outline-offset: -3px; }
+  .m-home { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .m-card { padding: 16px; }
+  .m-account { gap: 16px; }
+  .login-page { padding: 24px 16px 40px; }
+  .login-card { padding: 20px; }
+}
+
+@media (max-width: 559px) {
+  .m-profile { grid-template-columns: minmax(0, 1fr); }
+  .m-card-row { grid-template-columns: minmax(0, 1fr); }
+  .m-form-actions .button { flex: 1 1 auto; }
+  .m-segment { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .m-segment-button { padding: 0 8px; }
+}
+
+/* จอเตี้ย (มือถือแนวนอน): เมนูด้านล่างเตี้ยลง ไอคอนกับข้อความอยู่บรรทัดเดียว */
+@media (max-width: 899px) and (max-height: 480px) {
+  :root[data-surface='member'] { --m-tabbar-height: 48px; }
+  .m-tab { grid-auto-flow: column; justify-content: center; align-items: center; gap: 6px; }
+}

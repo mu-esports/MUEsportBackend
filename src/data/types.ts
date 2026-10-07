@@ -1,10 +1,29 @@
 export type MemberRole = 'member' | 'staff' | 'admin'
 export type MemberStatus = 'active' | 'suspended'
 
+/** สถานะบัญชีเข้าสู่ระบบของสมาชิก (รหัสนักศึกษา + รหัสผ่าน) ตามที่ server รายงาน ไม่มีรหัสผ่านหรือ hash */
+export interface MemberAccount {
+  /** none = ยังไม่ได้เปิดบัญชี, must_change = ต้องเปลี่ยนรหัสผ่านชั่วคราว, active = เปิดใช้งาน, disabled = ปิดบัญชี */
+  state: 'none' | 'must_change' | 'active' | 'disabled'
+  /** รหัสนักศึกษาที่บัญชีใช้เข้าสู่ระบบ */
+  loginId: string | null
+  /** รหัสในทะเบียนไม่ตรงกับรหัสที่บัญชีใช้อยู่ รอผู้ดูแลยืนยัน */
+  loginMismatch: boolean
+  passwordSetAt: string | null
+  lastLoginAt: string | null
+  /** เหตุผลที่ยังเปิดบัญชีหรือตั้งรหัสผ่านไม่ได้ */
+  blocked: null | 'suspended' | 'no_student_id' | 'student_id_conflict'
+}
+
 export interface Member {
   id: string
   name: string
   nickname: string
+  /** รหัสนักศึกษา เก็บเป็นข้อความตามที่กรอก (คงเลขศูนย์นำหน้า) ว่าง = ยังไม่ได้กรอก */
+  studentId: string
+  /** ค่าที่ชีตระบุแต่ระบบยังไม่ใช้ เพราะซ้ำหรือผิดรูปแบบ (ไม่มีในโหมดตัวอย่าง) */
+  studentIdIssue?: { code: 'invalid' | 'duplicate' | 'taken'; claimed: string } | null
+  account?: MemberAccount
   role: MemberRole
   status: MemberStatus
   contact: string
@@ -19,7 +38,10 @@ export interface Member {
   sourceState?: 'ok' | 'missing'
 }
 
-export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState'>
+export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState' | 'studentIdIssue' | 'account'>
+
+/** รูปแบบรหัสนักศึกษาที่ระบบรับ ต้องตรงกับที่ server ตรวจ (worker/validation.ts) */
+export const STUDENT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,30}[A-Za-z0-9])?$/
 
 export interface ClubEvent {
   id: string

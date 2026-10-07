@@ -12,6 +12,8 @@ export interface DocumentInfo {
   title: string
   status: DocumentStatus
   statusDetail: string
+  /** รหัสไฟล์ใน Google ใช้เปิดตัวอย่างในหน้าไฟล์ชมรม */
+  googleId: string
   googleUrl: string
   createdAt: string
   updatedAt: string
@@ -62,6 +64,8 @@ export const normalizeText = (input: string) => input.replace(/\r\n?/g, '\n').re
 export const documentsApi = {
   list: async () => (await api<{ documents: DocumentInfo[] }>('/api/documents')).documents,
   read: (id: string) => api<{ document: DocumentInfo; content: DocumentContent }>(`/api/documents/${encodeURIComponent(id)}`),
+  /** รายการที่ลงทะเบียนไว้ (ไม่ดึงเนื้อหา) ใช้พาลิงก์เอกสารเดิมไปยังตัวอย่างของไฟล์ */
+  file: (id: string) => api<{ document: DocumentInfo }>(`/api/documents/${encodeURIComponent(id)}/file`),
   create: (input: { title: string; text: string }, key: string) =>
     api<{ document: DocumentInfo }>('/api/documents', { method: 'POST', body: input, idempotencyKey: key }),
   // ไม่ส่งชื่อ: ชื่อเอกสารเปลี่ยนจากเว็บไม่ได้หลังสร้าง (server ปฏิเสธด้วย)

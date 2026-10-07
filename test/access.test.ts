@@ -34,7 +34,7 @@ describe('ยังไม่เข้าสู่ระบบ', () => {
 
   it('/api/session บอกว่าไม่มีผู้ใช้ และไม่มี CSRF token', async () => {
     const body = await data(await call('/api/session'))
-    expect(body).toEqual({ authConfigured: true, user: null, csrfToken: null })
+    expect(body).toEqual({ authConfigured: true, user: null, member: null, csrfToken: null })
   })
 })
 

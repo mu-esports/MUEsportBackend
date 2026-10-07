@@ -131,7 +131,7 @@ export interface Gapi {
 const RATE_REASONS = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded', 'RESOURCE_EXHAUSTED'])
 const SCOPE_REASONS = new Set(['insufficientPermissions', 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'insufficientScopes'])
 
-async function toApiError(response: Response): Promise<GoogleApiError> {
+export async function toApiError(response: Response): Promise<GoogleApiError> {
   const body = (await response.json().catch(() => null)) as { error?: { status?: string; errors?: { reason?: string }[]; details?: { reason?: string }[] } } | null
   const reason = body?.error?.errors?.[0]?.reason ?? body?.error?.details?.find((d) => d.reason)?.reason ?? body?.error?.status ?? `http_${response.status}`
   const retryAfter = Number(response.headers.get('Retry-After'))

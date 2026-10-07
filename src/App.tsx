@@ -1,15 +1,22 @@
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
 import type { RouteObject } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
-import { RequireAuth } from './auth/RequireAuth'
+import { RequireAuth, RequireMember } from './auth/RequireAuth'
 import { Layout } from './components/Layout'
 import { ToastProvider } from './components/Toast'
 import { StoreProvider } from './data/store'
 import { SyncProvider } from './data/sync'
+import { MemberAccountPage } from './member/MemberAccount'
+import { MemberActivitiesPage } from './member/MemberActivities'
+import { MemberFilesPage, MemberFileViewPage } from './member/MemberFiles'
+import { MemberHomePage } from './member/MemberHome'
+import { MemberLayout } from './member/MemberLayout'
+import { MemberPasswordPage } from './member/MemberPassword'
 import { IS_DEMO } from './mode'
 import { CalendarPage } from './pages/Calendar'
+import { DocumentCreatePage } from './pages/DocumentCreate'
 import { DocumentEditorPage } from './pages/DocumentEditor'
-import { DocumentsPage } from './pages/Documents'
+import { DocumentRedirectPage, FilesPage, FileViewPage } from './pages/Files'
 import { FormsPage } from './pages/Forms'
 import { AccessDeniedPage, LoginPage } from './pages/Login'
 import { MembersPage } from './pages/Members'
@@ -37,6 +44,31 @@ const liveRoutes: RouteObject[] = [
     children: [
       { path: 'login', element: <LoginPage /> },
       { path: 'access-denied', element: <AccessDeniedPage /> },
+      // ฝั่งสมาชิก (รหัสนักศึกษา + รหัสผ่าน): แยกเส้นทางและโครงหน้าจากหลังบ้านทั้งหมด ไม่โหลดข้อมูลหรือเมนูของทีมงาน
+      {
+        path: 'member/password',
+        element: (
+          <RequireMember>
+            <MemberPasswordPage />
+          </RequireMember>
+        ),
+      },
+      {
+        path: 'member',
+        element: (
+          <RequireMember>
+            <MemberLayout />
+          </RequireMember>
+        ),
+        children: [
+          { index: true, element: <MemberHomePage /> },
+          { path: 'activities', element: <MemberActivitiesPage /> },
+          { path: 'files', element: <MemberFilesPage /> },
+          { path: 'files/:id', element: <MemberFileViewPage /> },
+          { path: 'account', element: <MemberAccountPage /> },
+          { path: '*', element: <Navigate to="/member" replace /> },
+        ],
+      },
       {
         element: (
           <RequireAuth>
@@ -49,9 +81,13 @@ const liveRoutes: RouteObject[] = [
         ),
         children: [
           ...sharedPages,
-          { path: 'documents', element: <DocumentsPage /> },
-          { path: 'documents/new', element: <DocumentEditorPage /> },
-          { path: 'documents/:id', element: <DocumentEditorPage /> },
+          { path: 'files', element: <FilesPage /> },
+          { path: 'files/:id', element: <FileViewPage /> },
+          // หน้าเอกสารเดิมกลายเป็นหน้าไฟล์ชมรม ลิงก์เดิมของเอกสารแต่ละฉบับพาไปยังตัวอย่างของไฟล์นั้น
+          { path: 'documents', element: <Navigate to="/files" replace /> },
+          { path: 'documents/new', element: <DocumentCreatePage /> },
+          { path: 'documents/:id', element: <DocumentRedirectPage /> },
+          { path: 'documents/:id/edit', element: <DocumentEditorPage /> },
           { path: 'forms', element: <FormsPage /> },
           { path: 'team', element: <TeamPage /> },
           { path: '*', element: <Navigate to="/" replace /> },
@@ -61,7 +97,7 @@ const liveRoutes: RouteObject[] = [
   },
 ]
 
-/** โหมดข้อมูลตัวอย่าง: ไม่มีการเข้าสู่ระบบ ไม่มีเอกสารและทีมงาน เพราะไม่ได้ต่อกับระบบกลางหรือ Google */
+/** โหมดข้อมูลตัวอย่าง: ไม่มีการเข้าสู่ระบบ ไม่มีไฟล์ชมรม บัญชีสมาชิก และทีมงาน เพราะไม่ได้ต่อกับระบบกลางหรือ Google */
 const demoRoutes: RouteObject[] = [
   {
     element: (

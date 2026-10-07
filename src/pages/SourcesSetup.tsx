@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CalendarDays, CircleAlert, CircleCheck, ClipboardList, ExternalLink, Info, LoaderCircle, Lock, Table, TriangleAlert } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -14,13 +14,13 @@ import { useStore } from '../data/store'
 import { useSync } from '../data/sync'
 import type { SyncStatus } from '../data/sync'
 import { formatEventRange, formatTimestamp } from '../lib/datetime'
-import { pickFile } from '../lib/picker'
+import { cancelPick, pickFile, preloadPicker } from '../lib/picker'
 
 const KINDS: ResourceKind[] = ['sheets', 'calendar', 'forms']
 const META: Record<ResourceKind, { icon: LucideIcon; service: string; use: string; noun: string; defaultName: string; creates: string }> = {
   sheets: {
     icon: Table, service: 'Google Sheets', use: 'ทะเบียนสมาชิก', noun: 'ชีต', defaultName: 'MU Esport — ทะเบียนสมาชิก',
-    creates: 'ไฟล์ Google Sheets ใหม่ พร้อมแถวหัวตาราง: รหัสสมาชิก ชื่อ ชื่อเล่น บทบาท สถานะ ช่องทางติดต่อ หมายเหตุ วันที่เพิ่ม (ระบบจับคู่แถวด้วยคอลัมน์รหัสสมาชิก)',
+    creates: 'ไฟล์ Google Sheets ใหม่ พร้อมแถวหัวตาราง: รหัสสมาชิก ชื่อ ชื่อเล่น บทบาท สถานะ ช่องทางติดต่อ หมายเหตุ วันที่เพิ่ม รหัสนักศึกษา (ระบบจับคู่แถวด้วยคอลัมน์รหัสสมาชิก)',
   },
   calendar: {
     icon: CalendarDays, service: 'Google Calendar', use: 'ปฏิทินชมรม', noun: 'ปฏิทิน', defaultName: 'MU Esport — กำหนดการ',
@@ -33,6 +33,7 @@ const META: Record<ResourceKind, { icon: LucideIcon; service: string; use: strin
 }
 const FIELD_LABELS: Record<string, string> = {
   id: 'รหัสสมาชิก (ใช้จับคู่แถว)', name: 'ชื่อ', nickname: 'ชื่อเล่น', role: 'บทบาท', status: 'สถานะ', contact: 'ช่องทางติดต่อ', note: 'หมายเหตุ', addedAt: 'วันที่เพิ่ม',
+  studentId: 'รหัสนักศึกษา',
 }
 const FIELDS = Object.keys(FIELD_LABELS)
 const ACCESS_ROLE: Record<string, string> = { owner: 'เจ้าของ', writer: 'แก้ไขได้', reader: 'อ่านอย่างเดียว', freeBusyReader: 'เห็นเฉพาะว่าง/ไม่ว่าง' }
@@ -44,6 +45,7 @@ type Open =
   | { type: 'calendar' }
   | { type: 'unlink'; kind: ResourceKind }
   | { type: 'push'; kind: 'sheets' | 'calendar' }
+  | { type: 'studentId' }
 
 interface Props {
   google: SourcesStatus['google']
@@ -61,6 +63,8 @@ export function DataSpace({ google, isAdmin, onRequestScope, scopeBusy }: Props)
   const setup = useSetupInfo(isAdmin)
   const [open, setOpen] = useState<Open | null>(null)
   const [picking, setPicking] = useState<ResourceKind | null>(null)
+  const pickerOpener = useRef<HTMLButtonElement | null>(null)
+  const restorePickerFocus = useRef(false)
   const [error, setError] = useState('')
   const info = setup.info
   const connected = google.status === 'connected'
@@ -71,8 +75,25 @@ export function DataSpace({ google, isAdmin, onRequestScope, scopeBusy }: Props)
     await Promise.all([sync?.reload(), setup.reload(), refresh()]).catch(() => undefined)
   }
 
-  const pick = async (kind: 'sheets' | 'forms') => {
-    if (!info?.picker.configured) return
+  // โหลดหน้าต่างเลือกไฟล์ของ Google ไว้ล่วงหน้า: ตอนกดปุ่ม คำขอสิทธิ์จะเกิดในจังหวะเดียวกับการกด เบราว์เซอร์จึงไม่บล็อกเป็น popup
+  // โหลดไม่สำเร็จตรงนี้ยังไม่แจ้งผู้ใช้ (จะลองใหม่และแจ้งเหตุผลเมื่อกดปุ่ม)
+  const pickerConfigured = isAdmin && info?.picker.configured === true
+  useEffect(() => {
+    if (pickerConfigured) preloadPicker().catch(() => undefined)
+  }, [pickerConfigured])
+  // ออกจากหน้านี้ขณะหน้าต่างเลือกไฟล์เปิดอยู่: ปิดหน้าต่างนั้นด้วย
+  useEffect(() => cancelPick, [])
+
+  // คืน focus หลัง React เปิดให้ปุ่มกดได้แล้วใน DOM เดียวกัน ไม่อาศัยเวลาของ animation frame
+  useLayoutEffect(() => {
+    if (picking !== null || !restorePickerFocus.current) return
+    restorePickerFocus.current = false
+    if (open === null && pickerOpener.current?.isConnected) pickerOpener.current.focus()
+  }, [picking, open])
+
+  const pick = async (kind: 'sheets' | 'forms', opener: HTMLButtonElement) => {
+    if (!info?.picker.configured || picking !== null) return
+    pickerOpener.current = opener
     setError('')
     setPicking(kind)
     try {
@@ -81,6 +102,7 @@ export function DataSpace({ google, isAdmin, onRequestScope, scopeBusy }: Props)
     } catch (failure) {
       setError(messageOf(failure, 'เปิดหน้าต่างเลือกไฟล์ของ Google ไม่สำเร็จ ลองอีกครั้ง'))
     } finally {
+      restorePickerFocus.current = true
       setPicking(null)
     }
   }
@@ -180,9 +202,16 @@ export function DataSpace({ google, isAdmin, onRequestScope, scopeBusy }: Props)
                         )}
                       </>
                     ) : (
-                      <button type="button" className="button button-small" disabled={!info?.picker.configured || picking !== null} onClick={() => pick(kind)}>
-                        {picking === kind ? 'กำลังเปิดหน้าต่างของ Google…' : `เลือก${meta.noun}ที่มีอยู่`}
-                      </button>
+                      <>
+                        <button type="button" className="button button-small" disabled={!info?.picker.configured || picking !== null} onClick={(event) => pick(kind, event.currentTarget)}>
+                          {picking === kind ? 'หน้าต่างเลือกไฟล์ของ Google เปิดอยู่…' : `เลือก${meta.noun}ที่มีอยู่`}
+                        </button>
+                        {picking === kind && (
+                          <button type="button" className="button button-small" onClick={cancelPick}>
+                            ปิดหน้าต่างเลือกไฟล์
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -197,6 +226,36 @@ export function DataSpace({ google, isAdmin, onRequestScope, scopeBusy }: Props)
           )
         })}
       </ul>
+
+      {isAdmin && connected && info?.picker.configured && unlinked.some((kind) => kind !== 'calendar') && (
+        <p className="field-hint picker-note">
+          ปุ่ม “เลือก…ที่มีอยู่” เปิดหน้าต่างเลือกไฟล์ของ Google ทีละหน้าต่าง (ครั้งแรกอาจมีหน้าต่างขออนุญาตของ Google ก่อน) ถ้าหน้าต่างเลือกไฟล์แสดงหน้าเข้าสู่ระบบของ Google
+          ซ้อนอยู่หรือเลือกไฟล์ไม่ได้ อาจเกิดจากเบราว์เซอร์ที่บล็อก cookie ของเว็บอื่น (เช่น Brave หรือหน้าต่างส่วนตัว): กด “ปิดหน้าต่างเลือกไฟล์” แล้วลองอนุญาต cookie ของ Google
+          สำหรับเว็บไซต์นี้ ใช้เบราว์เซอร์อื่น หรือใช้ “สร้างชุดข้อมูลชมรม” แทน การดูไฟล์ในหน้า “ไฟล์ชมรม” ไม่ใช้หน้าต่างนี้
+        </p>
+      )}
+
+      {isAdmin && connected && info?.studentIdColumn === '' && (
+        <div className="notice notice-warning" data-student-id-column="missing">
+          <TriangleAlert aria-hidden="true" size={18} />
+          <div>
+            <p>
+              <strong>ชีตที่เชื่อมยังไม่มีคอลัมน์รหัสนักศึกษา</strong> รหัสนักศึกษาที่กรอกในเว็บจึงเก็บอยู่ในเว็บเท่านั้น และรหัสที่พิมพ์ในชีตยังไม่ถูกอ่าน
+            </p>
+            <button type="button" className="button button-small" onClick={() => setOpen({ type: 'studentId' })}>
+              จับคู่คอลัมน์รหัสนักศึกษา
+            </button>
+          </div>
+        </div>
+      )}
+      {isAdmin && connected && !!info?.studentIdColumn && (
+        <p className="field-hint" data-student-id-column="mapped">
+          คอลัมน์รหัสนักศึกษาของชีต: “{info.studentIdColumn}”{' '}
+          <button type="button" className="link-button" onClick={() => setOpen({ type: 'studentId' })}>
+            เปลี่ยนคอลัมน์
+          </button>
+        </p>
+      )}
 
       {isAdmin && info && !info.picker.configured && (
         <div className="notice notice-warning">
@@ -263,6 +322,16 @@ export function DataSpace({ google, isAdmin, onRequestScope, scopeBusy }: Props)
       {open?.type === 'calendar' && <CalendarLinkDialog onClose={() => setOpen(null)} onLinked={() => (setOpen(null), void changed(), toast.success('เชื่อม Google Calendar กับปฏิทินชมรมแล้ว'))} />}
       {open?.type === 'push' && statusOf(open.kind)?.resource && (
         <PushDialog kind={open.kind} status={statusOf(open.kind)!} count={(open.kind === 'sheets' ? info?.local.members : info?.local.events) ?? 0} onClose={() => (setOpen(null), void changed())} />
+      )}
+      {open?.type === 'studentId' && (
+        <StudentIdColumnDialog
+          onClose={() => setOpen(null)}
+          onDone={async (header) => {
+            setOpen(null)
+            await changed()
+            toast.success(`จับคู่คอลัมน์รหัสนักศึกษากับ “${header}” แล้ว`)
+          }}
+        />
       )}
       {open?.type === 'unlink' && <UnlinkDialog kind={open.kind} status={statusOf(open.kind)} onClose={() => setOpen(null)} onDone={() => (setOpen(null), void changed(), toast.success('ยกเลิกการเชื่อมแล้ว ต้นฉบับใน Google และข้อมูลในเว็บยังอยู่ครบ'))} />}
     </section>
@@ -909,5 +978,110 @@ function UnlinkDialog({ kind, status, onClose, onDone }: { kind: ResourceKind; s
         <li>เชื่อมแหล่งเดิมหรือแหล่งใหม่ได้ภายหลังจากหน้านี้</li>
       </ul>
     </ConfirmDialog>
+  )
+}
+
+interface StudentIdColumnInfo {
+  mapped: string | null
+  headers: string[]
+  suggestion: string | null
+  writable: boolean
+  defaultHeader: string
+}
+
+/** จับคู่หรือเพิ่มคอลัมน์รหัสนักศึกษาให้ชีตที่เชื่อมอยู่แล้ว โดยไม่ต้องยกเลิกการเชื่อม รหัสที่กรอกไว้ในเว็บไม่หาย */
+function StudentIdColumnDialog({ onClose, onDone }: { onClose(): void; onDone(header: string): void }) {
+  const [info, setInfo] = useState<StudentIdColumnInfo | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [choice, setChoice] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const ADD = '__add__'
+
+  useEffect(() => {
+    let cancelled = false
+    api<StudentIdColumnInfo>('/api/setup/student-id-column').then(
+      (data) => {
+        if (cancelled) return
+        setInfo(data)
+        setChoice(data.mapped ?? data.suggestion ?? (data.writable ? ADD : ''))
+      },
+      (failure: unknown) => !cancelled && setLoadError(messageOf(failure, 'อ่านหัวคอลัมน์ของชีตไม่สำเร็จ ลองอีกครั้ง')),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const save = async () => {
+    if (!choice || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const result = await api<{ mapped: string }>('/api/setup/student-id-column', { method: 'POST', body: choice === ADD ? { add: true } : { header: choice } })
+      onDone(result.mapped)
+    } catch (failure) {
+      setError(messageOf(failure, 'จับคู่คอลัมน์ไม่สำเร็จ ลองอีกครั้ง'))
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog
+      title="คอลัมน์รหัสนักศึกษาของชีต"
+      size="md"
+      onRequestClose={() => !saving && onClose()}
+      footer={
+        <>
+          <button type="button" className="button" onClick={onClose} disabled={saving}>
+            ยกเลิก
+          </button>
+          <button type="button" className="button button-primary" onClick={save} disabled={!info || !choice || saving || choice === info.mapped}>
+            {saving ? 'กำลังบันทึก…' : 'ใช้คอลัมน์นี้'}
+          </button>
+        </>
+      }
+    >
+      <div className="form">
+        {loadError ? (
+          <p className="form-alert" role="alert">
+            {loadError}
+          </p>
+        ) : !info ? (
+          <p className="muted" role="status">
+            กำลังอ่านหัวคอลัมน์จากชีต…
+          </p>
+        ) : (
+          <>
+            {error && (
+              <p className="form-alert" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="field">
+              <label htmlFor="student-id-column">คอลัมน์ที่เก็บรหัสนักศึกษา</label>
+              <select id="student-id-column" value={choice} onChange={(e) => setChoice(e.target.value)} data-autofocus>
+                <option value="">เลือกคอลัมน์</option>
+                {info.headers.map((header) => (
+                  <option key={header} value={header}>
+                    {header}
+                  </option>
+                ))}
+                {info.writable && !info.headers.some((h) => h.toLowerCase() === info.defaultHeader.toLowerCase()) && (
+                  <option value={ADD}>เพิ่มคอลัมน์ใหม่ชื่อ “{info.defaultHeader}” ต่อท้ายตาราง</option>
+                )}
+              </select>
+              <p className="field-hint">แสดงเฉพาะหัวคอลัมน์ที่ยังไม่ได้จับคู่กับฟิลด์อื่น{!info.writable ? ' (เว็บมีสิทธิ์อ่านชีตนี้อย่างเดียว จึงเพิ่มคอลัมน์ให้ไม่ได้)' : ''}</p>
+            </div>
+            <ul className="bulleted">
+              <li>รหัสนักศึกษาที่มีในคอลัมน์นี้จะถูกอ่านเข้าทะเบียน (เก็บเป็นข้อความ คงเลขศูนย์นำหน้า)</li>
+              <li>รหัสที่กรอกไว้ในเว็บก่อนหน้านี้ไม่หาย: ระบบเขียนลงช่องที่ยังว่างของแถวสมาชิกคนนั้น ไม่เขียนทับค่าหรือสูตรที่มีอยู่</li>
+              <li>รหัสที่ซ้ำกันหรือผิดรูปแบบจะไม่ถูกใช้ และแสดงเป็นรายการที่ต้องแก้ในแถบสถานะของ Google Sheets</li>
+              <li>ไม่มีรหัสผ่านหรือข้อมูลบัญชีถูกเขียนลงชีต</li>
+            </ul>
+          </>
+        )}
+      </div>
+    </Dialog>
   )
 }

@@ -18,6 +18,7 @@ export interface AppEnv {
 
 export type Role = 'staff' | 'admin'
 
+/** ทีมงานที่เข้าสู่ระบบด้วย Google (อยู่ในตาราง users) */
 export interface SessionUser {
   id: string
   email: string
@@ -25,11 +26,38 @@ export interface SessionUser {
   role: Role
 }
 
-export interface Session {
-  user: SessionUser
+/**
+ * สมาชิกที่เข้าสู่ระบบด้วยรหัสนักศึกษาและรหัสผ่าน (ตาราง member_accounts)
+ * ไม่มี role ของหลังบ้าน: บทบาทในทะเบียนสมาชิกเป็นข้อมูลประกอบเท่านั้น ไม่เคยถูกใช้ตัดสินสิทธิ์
+ */
+export interface SessionMember {
+  /** members.id (รหัสสมาชิกที่เสถียร) */
+  id: string
+  name: string
+  nickname: string
+  /** รหัสนักศึกษาที่ใช้เข้าสู่ระบบ */
+  studentId: string
+  /** ยังใช้รหัสผ่านชั่วคราวที่ผู้ดูแลตั้ง: ทำได้เพียงเปลี่ยนรหัสผ่านและออกจากระบบ */
+  mustChangePassword: boolean
+}
+
+interface SessionBase {
   tokenHash: string
   csrfToken: string
 }
+
+export interface StaffSession extends SessionBase {
+  kind: 'staff'
+  user: SessionUser
+}
+
+export interface MemberSession extends SessionBase {
+  kind: 'member'
+  member: SessionMember
+}
+
+/** session ระบุชนิดของผู้เข้าสู่ระบบเสมอ handler ต้องเลือก guard ตามชนิดที่ยอมรับ */
+export type Session = StaffSession | MemberSession
 
 /** สิ่งที่ handler ทุกตัวได้รับ */
 export interface Ctx {

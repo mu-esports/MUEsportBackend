@@ -234,7 +234,8 @@ export class FakeWorkspace {
         const end = filter.gridRange.endRowIndex ?? tab.cells.length
         // เหมือน Google: ตัดเซลล์ว่างท้ายแถวและแถวว่างท้ายช่วง; FORMATTED_VALUE แสดงผลของสูตร ไม่ใช่ตัวสูตร
         const rows = tab.cells.slice(start, end).map((row) => {
-          const shown = row.map((cell) => (body.valueRenderOption !== 'FORMULA' && cell.startsWith('=') ? `ผลของสูตร ${cell.slice(1)}` : cell))
+          // สูตร ="" ให้ผลเป็นช่องว่าง (ใช้ทดสอบช่องที่ดูว่างแต่มีสูตร)
+          const shown = row.map((cell) => (body.valueRenderOption !== 'FORMULA' && cell.startsWith('=') ? (cell === '=""' ? '' : `ผลของสูตร ${cell.slice(1)}`) : cell))
           while (shown.length > 0 && shown[shown.length - 1] === '') shown.pop()
           return shown
         })

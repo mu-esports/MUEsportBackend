@@ -14,13 +14,18 @@ interface DialogProps {
   description?: string
   /** องค์ประกอบที่ควรได้ focus เมื่อปิด ใช้เมื่อปุ่มที่เปิดไม่ใช่จุดที่เหมาะจะกลับไป */
   returnFocus?(): HTMLElement | null
+  /**
+   * false = ผู้ใช้ปิดกล่องนี้เองไม่ได้: ไม่แสดงปุ่มปิด และบอกเบราว์เซอร์ไม่ให้ Esc ปิดกล่อง (closedby="none")
+   * ทางไปต่อต้องอยู่ในกล่อง และ onRequestClose ต้องไม่ปิดกล่อง เบราว์เซอร์ที่ยังไม่รองรับ closedby ใช้การเปิดกลับใน onClose
+   */
+  dismissible?: boolean
 }
 
 /**
  * Dialog แบบ modal ใช้ <dialog> ของเบราว์เซอร์ จึงกัก focus ไว้ภายในและปิดด้วย Esc ได้
  * focus เริ่มที่องค์ประกอบที่มี data-autofocus และคืนกลับไปยังปุ่มที่เปิดเมื่อปิด
  */
-export function Dialog({ title, description, onRequestClose, children, footer, size = 'md', returnFocus }: DialogProps) {
+export function Dialog({ title, description, onRequestClose, children, footer, size = 'md', returnFocus, dismissible = true }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
   const descId = useId()
@@ -49,6 +54,7 @@ export function Dialog({ title, description, onRequestClose, children, footer, s
     <dialog
       ref={ref}
       className={`dialog dialog-${size}`}
+      closedby={dismissible ? undefined : 'none'}
       aria-labelledby={titleId}
       aria-describedby={description ? descId : undefined}
       onCancel={(e) => {
@@ -60,6 +66,7 @@ export function Dialog({ title, description, onRequestClose, children, footer, s
         const dialog = ref.current
         if (!dialog || dialog.open) return
         dialog.showModal()
+        dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
         requestClose.current()
       }}
       onMouseDown={(e) => {
@@ -72,9 +79,11 @@ export function Dialog({ title, description, onRequestClose, children, footer, s
             <h2 id={titleId}>{title}</h2>
             {description && <p id={descId}>{description}</p>}
           </div>
-          <button type="button" className="icon-button" aria-label="ปิด" onClick={onRequestClose}>
-            <X aria-hidden="true" size={20} />
-          </button>
+          {dismissible && (
+            <button type="button" className="icon-button" aria-label="ปิด" onClick={onRequestClose}>
+              <X aria-hidden="true" size={20} />
+            </button>
+          )}
         </header>
         <div className="dialog-body">{children}</div>
         {footer && <footer className="dialog-footer">{footer}</footer>}

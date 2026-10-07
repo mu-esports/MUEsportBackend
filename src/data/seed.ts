@@ -13,18 +13,18 @@ type SeedEvent = Omit<ClubEvent, 'id' | 'start' | 'end' | 'version'> & {
 }
 
 const MEMBERS: SeedMember[] = [
-  { name: 'ธนกร สมมติวงศ์', nickname: 'ต้น', role: 'admin', status: 'active', contact: 'Discord: ton_sample', note: 'ดูแลภาพรวมทีมงาน (ข้อมูลตัวอย่าง)', daysAgo: 210 },
-  { name: 'พิมพ์ชนก ตัวอย่างดี', nickname: 'พิม', role: 'admin', status: 'active', contact: 'pim@example.com', note: '', daysAgo: 205 },
-  { name: 'ภูริ ทดสอบกิจ', nickname: 'ภู', role: 'staff', status: 'active', contact: 'Discord: phu_sample', note: 'ประสานงานสถานที่', daysAgo: 160 },
-  { name: 'กานต์ธิดา สมมตินาม', nickname: 'กานต์', role: 'staff', status: 'active', contact: '', note: 'ดูแลการรับสมัคร', daysAgo: 152 },
-  { name: 'ศุภวิชญ์ ลองเล่น', nickname: 'วิน', role: 'staff', status: 'suspended', contact: 'win@example.com', note: 'พักช่วงฝึกงาน', daysAgo: 140 },
-  { name: 'ณิชา ตัวอย่างสุข', nickname: 'มายด์', role: 'member', status: 'active', contact: 'Discord: mind_sample', note: '', daysAgo: 96 },
-  { name: 'ปัณณวัฒน์ สมมติชัย', nickname: 'ปัน', role: 'member', status: 'active', contact: '', note: '', daysAgo: 90 },
-  { name: 'ชลธิชา ทดลองใจ', nickname: 'น้ำ', role: 'member', status: 'active', contact: 'nam@example.com', note: '', daysAgo: 61 },
-  { name: 'กฤตเมธ ตัวอย่างเกม', nickname: 'เมธ', role: 'member', status: 'active', contact: '', note: 'สนใจช่วยงานถ่ายทอดสด', daysAgo: 45 },
-  { name: 'วริศรา สมมติพร', nickname: 'ออม', role: 'member', status: 'suspended', contact: '', note: '', daysAgo: 44 },
-  { name: 'ธีรภัทร ทดสอบศิลป์', nickname: 'บอส', role: 'member', status: 'active', contact: 'Discord: boss_sample', note: '', daysAgo: 12 },
-  { name: 'อริสา ลองดู', nickname: 'ฟ้า', role: 'member', status: 'active', contact: '', note: '', daysAgo: 3 },
+  { name: 'ธนกร สมมติวงศ์', nickname: 'ต้น', studentId: '6500001', role: 'admin', status: 'active', contact: 'Discord: ton_sample', note: 'ดูแลภาพรวมทีมงาน (ข้อมูลตัวอย่าง)', daysAgo: 210 },
+  { name: 'พิมพ์ชนก ตัวอย่างดี', nickname: 'พิม', studentId: '6500002', role: 'admin', status: 'active', contact: 'pim@example.com', note: '', daysAgo: 205 },
+  { name: 'ภูริ ทดสอบกิจ', nickname: 'ภู', studentId: '6500003', role: 'staff', status: 'active', contact: 'Discord: phu_sample', note: 'ประสานงานสถานที่', daysAgo: 160 },
+  { name: 'กานต์ธิดา สมมตินาม', nickname: 'กานต์', studentId: '6500004', role: 'staff', status: 'active', contact: '', note: 'ดูแลการรับสมัคร', daysAgo: 152 },
+  { name: 'ศุภวิชญ์ ลองเล่น', nickname: 'วิน', studentId: '6500005', role: 'staff', status: 'suspended', contact: 'win@example.com', note: 'พักช่วงฝึกงาน', daysAgo: 140 },
+  { name: 'ณิชา ตัวอย่างสุข', nickname: 'มายด์', studentId: '6500006', role: 'member', status: 'active', contact: 'Discord: mind_sample', note: '', daysAgo: 96 },
+  { name: 'ปัณณวัฒน์ สมมติชัย', nickname: 'ปัน', studentId: '6500007', role: 'member', status: 'active', contact: '', note: '', daysAgo: 90 },
+  { name: 'ชลธิชา ทดลองใจ', nickname: 'น้ำ', studentId: '6500008', role: 'member', status: 'active', contact: 'nam@example.com', note: '', daysAgo: 61 },
+  { name: 'กฤตเมธ ตัวอย่างเกม', nickname: 'เมธ', studentId: '6500009', role: 'member', status: 'active', contact: '', note: 'สนใจช่วยงานถ่ายทอดสด', daysAgo: 45 },
+  { name: 'วริศรา สมมติพร', nickname: 'ออม', studentId: '6500010', role: 'member', status: 'suspended', contact: '', note: '', daysAgo: 44 },
+  { name: 'ธีรภัทร ทดสอบศิลป์', nickname: 'บอส', studentId: '6500011', role: 'member', status: 'active', contact: 'Discord: boss_sample', note: '', daysAgo: 12 },
+  { name: 'อริสา ลองดู', nickname: 'ฟ้า', studentId: '', role: 'member', status: 'active', contact: '', note: '', daysAgo: 3 },
 ]
 
 const EVENTS: SeedEvent[] = [

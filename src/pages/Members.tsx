@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { ExternalLink, Pencil, Search, SearchX, TriangleAlert, UserPlus, Users } from 'lucide-react'
+import { useAuth } from '../auth/AuthProvider'
 import { Dialog } from '../components/Dialog'
 import { SyncBar } from '../components/SyncBar'
 import { useToast } from '../components/Toast'
@@ -11,6 +12,8 @@ import { useSync } from '../data/sync'
 import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
 import type { Member, MemberRole, MemberStatus } from '../data/types'
 import { formatDate } from '../lib/datetime'
+import { AccountSection, ConfirmLoginIdDialog, DisableAccountDialog, SetPasswordDialog } from './AccountDialogs'
+import type { AccountAction } from './AccountDialogs'
 import { MemberForm } from './MemberForm'
 import { SuspendConfirm } from './SuspendConfirm'
 
@@ -18,6 +21,7 @@ type FormTarget = { mode: 'add' } | { mode: 'edit'; id: string }
 
 export function MembersPage() {
   const { state, members, setMemberStatus, refresh } = useStore()
+  const { isAdmin } = useAuth()
   const toast = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
   // แหล่งหลักของทะเบียน: ชีตที่เชื่อม (ถ้ามี) ใช้บอกว่าสมาชิกคนใดยังอยู่เฉพาะในเว็บ
@@ -32,6 +36,10 @@ export function MembersPage() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [form, setForm] = useState<FormTarget | null>(null)
   const [suspendId, setSuspendId] = useState<string | null>(null)
+  // กล่องจัดการบัญชีของสมาชิกที่เปิดรายละเอียดอยู่ (เปิดทีละกล่อง ไม่ซ้อนกับกล่องรายละเอียด)
+  const [accountAction, setAccountAction] = useState<AccountAction | null>(null)
+  // ผลของการจัดการบัญชีครั้งล่าสุด แสดงในกล่องรายละเอียดของสมาชิกคนนั้น
+  const [accountNotice, setAccountNotice] = useState('')
   const [busy, setBusy] = useState(false)
   // แสดงในหน้ารายละเอียดที่เปิดอยู่ เพราะข้อความแจ้งผลนอก dialog จะถูกฉากมืดบัง
   const [statusError, setStatusError] = useState('')
@@ -57,7 +65,7 @@ export function MembersPage() {
         if (status && m.status !== status) return false
         if (role && m.role !== role) return false
         if (!q) return true
-        return [m.name, m.nickname, ROLE_LABELS[m.role]].some((text) => text.toLowerCase().includes(q))
+        return [m.name, m.nickname, m.studentId ?? '', ROLE_LABELS[m.role]].some((text) => text.toLowerCase().includes(q))
       })
       .sort((a, b) => b.addedAt.localeCompare(a.addedAt) || a.name.localeCompare(b.name, 'th'))
   }, [members, query, status, role])
@@ -76,8 +84,16 @@ export function MembersPage() {
   const suspendTarget = byId(suspendId)
   const editTarget = form?.mode === 'edit' ? byId(form.id) : undefined
 
+  // จัดการบัญชีสำเร็จ: โหลดสถานะบัญชีล่าสุด แล้วกลับไปที่รายละเอียดของสมาชิกคนเดิม
+  const accountSaved = (message: string) => {
+    refresh().catch(() => undefined)
+    setAccountAction(null)
+    setAccountNotice(message)
+  }
+
   const openDetail = (id: string | null) => {
     setStatusError('')
+    setAccountNotice('')
     setDetailId(id)
   }
 
@@ -151,7 +167,7 @@ export function MembersPage() {
                 <input
                   id="member-search"
                   type="search"
-                  placeholder="ค้นหาชื่อ ชื่อเล่น หรือบทบาท"
+                  placeholder="ค้นหาชื่อ ชื่อเล่น รหัสนักศึกษา หรือบทบาท"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
@@ -219,6 +235,7 @@ export function MembersPage() {
                         <th scope="row" className="cell-name">
                           <span className="member-name">{m.name}</span>
                           <span className="member-nickname">{m.nickname}</span>
+                          {m.studentId && <span className="member-student-id">รหัสนักศึกษา {m.studentId}</span>}
                           <SourceNote member={m} sheetLinked={sheetLinked} />
                         </th>
                         <td data-label="บทบาท">{ROLE_LABELS[m.role]}</td>
@@ -248,7 +265,7 @@ export function MembersPage() {
         )}
       </DataBoundary>
 
-      {detail && !form && !suspendTarget && (
+      {detail && !form && !suspendTarget && !accountAction && (
         <Dialog
           title={detail.name}
           description={`ชื่อเล่น: ${detail.nickname}`}
@@ -307,7 +324,21 @@ export function MembersPage() {
           {sheetReadOnly && detail.source === 'sheets' && (
             <p className="notice detail-alert">บัญชี Google ของชมรมมีสิทธิ์อ่านชีตนี้อย่างเดียว จึงแก้จากเว็บไม่ได้ แก้ที่ชีตต้นฉบับ</p>
           )}
+          {detail.studentIdIssue && (
+            <p className="notice notice-warning detail-alert">
+              <TriangleAlert aria-hidden="true" size={18} />
+              <span>
+                ชีตระบุรหัสนักศึกษา “{detail.studentIdIssue.claimed}” ซึ่ง
+                {detail.studentIdIssue.code === 'invalid' ? 'ผิดรูปแบบ' : detail.studentIdIssue.code === 'duplicate' ? 'ซ้ำกับแถวอื่นในชีต' : 'ซ้ำกับสมาชิกอีกคนในระบบ'} ระบบจึงยังไม่ใช้ค่านี้
+                {detail.studentId ? ` (ทะเบียนยังใช้ ${detail.studentId})` : ''} แก้ที่ชีตให้ถูกต้องและไม่ซ้ำ
+              </span>
+            </p>
+          )}
           <dl className="detail-list">
+            <div>
+              <dt>รหัสนักศึกษา</dt>
+              <dd className="break-word">{detail.studentId || <span className="muted">ยังไม่ได้กรอก</span>}</dd>
+            </div>
             <div>
               <dt>แหล่งข้อมูล</dt>
               <dd>{detail.source === 'sheets' ? 'Google Sheets ที่เชื่อม' : sheetLinked ? 'เฉพาะในเว็บ (ยังไม่อยู่ในชีต)' : 'ในเว็บ'}</dd>
@@ -335,8 +366,21 @@ export function MembersPage() {
               <dd className="pre-line">{detail.note || <span className="muted">ไม่มีหมายเหตุ</span>}</dd>
             </div>
           </dl>
+          <AccountSection
+            member={detail}
+            isAdmin={isAdmin}
+            notice={accountNotice}
+            onAction={(action) => {
+              setAccountNotice('')
+              setAccountAction(action)
+            }}
+          />
         </Dialog>
       )}
+
+      {detail && accountAction === 'password' && <SetPasswordDialog member={detail} onClose={() => setAccountAction(null)} onSaved={accountSaved} />}
+      {detail && accountAction === 'disable' && <DisableAccountDialog member={detail} onClose={() => setAccountAction(null)} onSaved={accountSaved} />}
+      {detail && accountAction === 'login-id' && <ConfirmLoginIdDialog member={detail} onClose={() => setAccountAction(null)} onSaved={accountSaved} />}
 
       {suspendTarget && (
         <SuspendConfirm

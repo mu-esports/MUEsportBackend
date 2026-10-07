@@ -3,15 +3,17 @@ import type { FormEvent } from 'react'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { Field, fieldAria } from '../components/ui'
 import { createKeyTracker } from '../api/client'
-import { hasCode, isUnconfirmed, messageOf } from '../data/errors'
+import { AppError, hasCode, isUnconfirmed, messageOf } from '../data/errors'
 import { useStore } from '../data/store'
-import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
+import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES, STUDENT_ID_PATTERN } from '../data/types'
 import type { Member, MemberInput } from '../data/types'
 import { SuspendConfirm } from './SuspendConfirm'
 
-type Errors = Partial<Record<'name' | 'nickname', string>>
+type Errors = Partial<Record<'name' | 'nickname' | 'studentId', string>>
 
-const BLANK: MemberInput = { name: '', nickname: '', role: 'member', status: 'active', contact: '', note: '' }
+const BLANK: MemberInput = { name: '', nickname: '', studentId: '', role: 'member', status: 'active', contact: '', note: '' }
+
+const STUDENT_ID_RULE = 'รหัสนักศึกษาใช้ได้เฉพาะตัวเลข ตัวอักษรอังกฤษ และเครื่องหมาย - _ . คั่นกลาง ไม่มีช่องว่าง ยาวไม่เกิน 32 ตัวอักษร'
 
 function validate(v: MemberInput): Errors {
   const errors: Errors = {}
@@ -19,11 +21,13 @@ function validate(v: MemberInput): Errors {
   else if (v.name.trim().length > 100) errors.name = 'ชื่อยาวได้ไม่เกิน 100 ตัวอักษร'
   if (!v.nickname.trim()) errors.nickname = 'กรอกชื่อเล่น'
   else if (v.nickname.trim().length > 40) errors.nickname = 'ชื่อเล่นยาวได้ไม่เกิน 40 ตัวอักษร'
+  // ว่างได้ (ยังไม่ได้กรอก) ถ้ากรอกต้องถูกรูปแบบ เก็บเป็นข้อความตามที่พิมพ์ ไม่แปลงเป็นตัวเลข
+  if (v.studentId.trim() && !STUDENT_ID_PATTERN.test(v.studentId.trim())) errors.studentId = STUDENT_ID_RULE
   return errors
 }
 
 const toInput = (m: Member): MemberInput => ({
-  name: m.name, nickname: m.nickname, role: m.role, status: m.status, contact: m.contact, note: m.note,
+  name: m.name, nickname: m.nickname, studentId: m.studentId ?? '', role: m.role, status: m.status, contact: m.contact, note: m.note,
 })
 
 interface Props {
@@ -64,15 +68,16 @@ export function MemberForm({ member, onClose, onSaved }: Props) {
     e.preventDefault()
     const found = validate(values)
     setErrors(found)
-    const firstInvalid = (['name', 'nickname'] as const).find((k) => found[k])
+    const firstInvalid = (['name', 'nickname', 'studentId'] as const).find((k) => found[k])
     if (firstInvalid) {
-      formRef.current?.querySelector<HTMLElement>(`#member-${firstInvalid}`)?.focus()
+      formRef.current?.querySelector<HTMLElement>(`#member-${firstInvalid === 'studentId' ? 'student-id' : firstInvalid}`)?.focus()
       return
     }
     const input: MemberInput = {
       ...values,
       name: values.name.trim(),
       nickname: values.nickname.trim(),
+      studentId: values.studentId.trim(),
       contact: values.contact.trim(),
       note: values.note.trim(),
     }
@@ -105,6 +110,12 @@ export function MemberForm({ member, onClose, onSaved }: Props) {
       if (hasCode(error, 'version_conflict')) {
         setConflict((error as { data: { current: Member } }).data.current)
         setSubmitError(messageOf(error, ''))
+      } else if (error instanceof AppError && error.data.field === 'studentId' && !isUnconfirmed(error)) {
+        // รหัสนักศึกษาซ้ำหรือผิดรูปแบบ: บอกที่ช่องนั้น ค่าที่กรอกยังอยู่ครบ
+        const message = error.message
+        setErrors((e) => ({ ...e, studentId: message }))
+        if (error.code === 'student_id_conflict') refresh().catch(() => undefined)
+        formRef.current?.querySelector<HTMLElement>('#member-student-id')?.focus()
       } else if (isUnconfirmed(error)) {
         // Google อาจบันทึกไปแล้ว: ไม่บอกว่าสำเร็จหรือไม่สำเร็จ ดึงค่าล่าสุดมาให้ตรวจในรายการด้านหลัง
         refresh().catch(() => undefined)
@@ -181,6 +192,31 @@ export function MemberForm({ member, onClose, onSaved }: Props) {
               />
             </Field>
           </div>
+          <Field
+            label="รหัสนักศึกษา"
+            htmlFor="member-student-id"
+            optional
+            error={errors.studentId}
+            hint={
+              member?.account && member.account.state !== 'none'
+                ? 'สมาชิกนี้มีบัญชีแล้ว: แก้รหัสที่นี่ยังไม่เปลี่ยนรหัสที่ใช้เข้าสู่ระบบ จนกว่าผู้ดูแลจะยืนยันในรายละเอียดสมาชิก'
+                : 'ใช้เป็นรหัสเข้าสู่ระบบของสมาชิก เก็บตามที่พิมพ์ (คงเลขศูนย์นำหน้า) เว้นว่างได้ถ้ายังไม่ทราบ'
+            }
+          >
+            <input
+              id="member-student-id"
+              type="text"
+              inputMode="text"
+              value={values.studentId}
+              onChange={(e) => set('studentId', e.target.value)}
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={40}
+              aria-describedby={errors.studentId ? 'member-student-id-error' : 'member-student-id-hint'}
+              aria-invalid={errors.studentId ? true : undefined}
+            />
+          </Field>
           <div className="form-row">
             <Field label="บทบาท" htmlFor="member-role" hint="ใช้ประกอบการแสดงผล ไม่ใช่สิทธิ์เข้าสู่ระบบ">
               <select

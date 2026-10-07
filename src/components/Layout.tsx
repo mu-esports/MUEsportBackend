@@ -8,7 +8,8 @@ import { useStore } from '../data/store'
 import { IS_DEMO } from '../mode'
 import { ConfirmDialog } from './Dialog'
 import { focusOrigin } from './focusOrigin'
-import { NAV, useNavItems } from './nav'
+import { inNav, NAV, useNavItems } from './nav'
+import type { NavItem } from './nav'
 import { ThemeSwitch } from './ThemeSwitch'
 import { useToast } from './Toast'
 
@@ -19,19 +20,39 @@ const DESKTOP_QUERY = '(min-width: 1024px)'
 
 function NavList({ onNavigate }: { onNavigate?(): void }) {
   const items = useNavItems()
+  const { pathname } = useLocation()
+  const link = (item: NavItem) => {
+    const Icon = item.icon
+    const current = inNav(item, pathname)
+    return (
+      <li key={item.to}>
+        {/* หน้าปัจจุบันรวม path ที่อยู่ใต้เมนูนี้ (เช่น ลิงก์เอกสารเดิมอยู่ใต้ไฟล์ชมรม) */}
+        <NavLink to={item.to} end={item.to === '/'} className={current ? 'nav-link active' : 'nav-link'} aria-current={current ? 'page' : undefined} onClick={onNavigate}>
+          <span className="nav-icon">
+            <Icon aria-hidden="true" size={20} />
+          </span>
+          <span className="nav-label">{item.label}</span>
+        </NavLink>
+      </li>
+    )
+  }
+  const daily = items.filter((item) => item.group !== 'setup')
+  const setup = items.filter((item) => item.group === 'setup')
   return (
-    <ul className="nav-list">
-      {items.map(({ to, label, icon: Icon }) => (
-        <li key={to}>
-          <NavLink to={to} end={to === '/'} className="nav-link" onClick={onNavigate}>
-            <span className="nav-icon">
-              <Icon aria-hidden="true" size={20} />
-            </span>
-            <span className="nav-label">{label}</span>
-          </NavLink>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="nav-list">{daily.map(link)}</ul>
+      {/* เครื่องมือตั้งค่าแยกจากเมนูที่ใช้งานประจำ */}
+      {setup.length > 0 && (
+        <>
+          <p className="nav-group" id="nav-setup-title">
+            ตั้งค่า
+          </p>
+          <ul className="nav-list" aria-labelledby="nav-setup-title">
+            {setup.map(link)}
+          </ul>
+        </>
+      )}
+    </>
   )
 }
 
@@ -233,7 +254,7 @@ export function Layout() {
   }, [])
 
   useEffect(() => {
-    const current = NAV.find((n) => (n.to === '/' ? pathname === '/' : pathname === n.to || pathname.startsWith(`${n.to}/`)))
+    const current = NAV.find((n) => inNav(n, pathname))
     document.title = current ? `${current.label} · ${APP_NAME}` : APP_NAME
   }, [pathname])
 

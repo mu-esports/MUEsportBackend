@@ -8,7 +8,7 @@ import {
   withLock,
 } from './sync'
 import type { Gapi, SyncIssue, SyncResource } from './sync'
-import { bangkokToday, versionConflict } from './validation'
+import { bangkokToday, isStudentId, STUDENT_ID_RULE, versionConflict } from './validation'
 
 /**
  * Google Sheets ↔ ทะเบียนสมาชิก
@@ -23,7 +23,8 @@ export const SHEET_MIME = 'application/vnd.google-apps.spreadsheet'
 const MAX_ROWS = 5000
 const MAX_ID_ASSIGN = 100
 
-export const MEMBER_FIELDS = ['id', 'name', 'nickname', 'role', 'status', 'contact', 'note', 'addedAt'] as const
+// studentId อยู่ท้ายสุด: ชีตที่เว็บสร้างไว้ก่อนมีฟิลด์นี้ยังมีหัวตารางเดิมครบตามลำดับ และเพิ่มคอลัมน์รหัสนักศึกษาต่อท้ายได้
+export const MEMBER_FIELDS = ['id', 'name', 'nickname', 'role', 'status', 'contact', 'note', 'addedAt', 'studentId'] as const
 export type MemberField = (typeof MEMBER_FIELDS)[number]
 
 export const DEFAULT_HEADERS: Record<MemberField, string> = {
@@ -35,9 +36,11 @@ export const DEFAULT_HEADERS: Record<MemberField, string> = {
   contact: 'ช่องทางติดต่อ',
   note: 'หมายเหตุ',
   addedAt: 'วันที่เพิ่ม',
+  studentId: 'รหัสนักศึกษา',
 }
 export const FIELD_LABELS: Record<MemberField, string> = {
   id: 'รหัสสมาชิก', name: 'ชื่อ', nickname: 'ชื่อเล่น', role: 'บทบาท', status: 'สถานะ', contact: 'ช่องทางติดต่อ', note: 'หมายเหตุ', addedAt: 'วันที่เพิ่ม',
+  studentId: 'รหัสนักศึกษา',
 }
 const HEADER_HINTS: Record<MemberField, string[]> = {
   id: ['รหัสสมาชิก', 'รหัส', 'id', 'member id'],
@@ -48,6 +51,7 @@ const HEADER_HINTS: Record<MemberField, string[]> = {
   contact: ['ช่องทางติดต่อ', 'ติดต่อ', 'contact', 'discord', 'อีเมล', 'email'],
   note: ['หมายเหตุ', 'note', 'notes'],
   addedAt: ['วันที่เพิ่ม', 'วันที่สมัคร', 'วันที่', 'added', 'date'],
+  studentId: ['รหัสนักศึกษา', 'รหัส นศ.', 'รหัส นศ', 'รหัสนศ.', 'รหัสนศ', 'เลขประจำตัวนักศึกษา', 'student id', 'studentid', 'student no', 'student number'],
 }
 
 export interface SheetConfig {
@@ -92,11 +96,15 @@ export interface MemberValues {
   contact: string
   note: string
   addedAt: string
+  /** ข้อความในช่องรหัสนักศึกษาตามที่ชีตแสดง (ว่างเมื่อไม่ได้กรอกหรือชีตไม่มีคอลัมน์นี้) ค่านี้จะถูกใช้เมื่อผ่านการตรวจรูปแบบและไม่ซ้ำเท่านั้น */
+  studentId: string
 }
 
 /** ค่าที่เขียนลงเซลล์ของแต่ละฟิลด์ */
 const cellValue = (field: MemberField, id: string, v: MemberValues): string =>
   field === 'id' ? id : field === 'role' ? ROLE_OUT[v.role] : field === 'status' ? STATUS_OUT[v.status] : v[field]
+
+export type StudentIdIssue = '' | 'invalid' | 'duplicate' | 'taken'
 
 interface ParsedRow {
   /** ดัชนีแถวในชีต (เริ่มที่ 0) */
@@ -106,6 +114,8 @@ interface ParsedRow {
   problems: string[]
   /** ฟิลด์ที่เว้นว่างในชีตและระบบเติมค่าเริ่มต้นให้ */
   blankAddedAt: boolean
+  /** ปัญหาของช่องรหัสนักศึกษาที่ดูได้จากชีตอย่างเดียว ไม่ทำให้ข้อมูลอื่นของแถวถูกข้าม */
+  studentIdIssue: StudentIdIssue
 }
 
 export interface SheetTable {
@@ -190,12 +200,17 @@ export function parseTable(values: unknown[][], config: SheetConfig, hash: strin
 
     const id = cell(raw, 'id')
     if (id.length > 64) problems.push('รหัสสมาชิกยาวเกิน 64 ตัวอักษร')
+    // รหัสนักศึกษาผิดรูปแบบไม่ทำให้ทั้งแถวถูกข้าม: ข้อมูลอื่นยังซิงค์ตามปกติ ส่วนรหัสนักศึกษาคงค่าเดิมในเว็บไว้จนกว่าจะแก้ที่ชีต
+    const studentId = cell(raw, 'studentId')
+    const studentIdIssue: StudentIdIssue = studentId !== '' && !isStudentId(studentId) ? 'invalid' : ''
+    if (studentIdIssue) issues.push({ code: 'invalid_student_id', where, message: `รหัสนักศึกษาในแถวนี้${STUDENT_ID_RULE} ระบบจึงยังไม่ใช้ค่านี้` })
     const parsed: ParsedRow = {
       index,
       id,
-      values: problems.length === 0 ? { name, nickname, role: role!, status: status!, contact, note, addedAt: addedAt! } : null,
+      values: problems.length === 0 ? { name, nickname, role: role!, status: status!, contact, note, addedAt: addedAt!, studentId } : null,
       problems,
       blankAddedAt: dateRaw === '',
+      studentIdIssue,
     }
     if (problems.length > 0) issues.push({ code: 'invalid_row', where, message: problems.join(' · ') })
     if (!id) {
@@ -209,6 +224,23 @@ export function parseTable(values: unknown[][], config: SheetConfig, hash: strin
       seen.set(id, index)
     }
     rows.push(parsed)
+  }
+
+  // รหัสนักศึกษาเดียวกันอยู่มากกว่าหนึ่งแถว: ไม่รู้ว่าเป็นของใคร จึงไม่ใช้กับแถวใดเลย (ไม่รวมบัญชี ไม่ย้ายเจ้าของ)
+  const byStudentId = new Map<string, ParsedRow[]>()
+  for (const row of [...rows, ...withoutId]) {
+    if (!row.values || row.studentIdIssue || row.values.studentId === '') continue
+    const key = row.values.studentId.toLowerCase()
+    byStudentId.set(key, [...(byStudentId.get(key) ?? []), row])
+  }
+  for (const group of byStudentId.values()) {
+    if (group.length < 2) continue
+    for (const row of group) row.studentIdIssue = 'duplicate'
+    issues.push({
+      code: 'duplicate_student_id',
+      where: `แถว ${group.map((row) => row.index + 1).join(' และ ')}`,
+      message: 'รหัสนักศึกษาซ้ำกัน ระบบจึงยังไม่ใช้รหัสนี้กับแถวใดเลย และเปิดบัญชีสมาชิกของแถวเหล่านี้ไม่ได้จนกว่าจะแก้ให้ไม่ซ้ำ',
+    })
   }
   return { cols, rows, withoutId, duplicateIds, issues, headers, hash, rowCount: rows.length + withoutId.length }
 }
@@ -277,9 +309,67 @@ interface MemberRow {
   source_resource_id: string | null
   source_state: string
   source_hash: string | null
+  student_id: string
+  student_id_origin: 'web' | 'sheet'
+  student_id_issue: StudentIdIssue
+  student_id_claimed: string
 }
 
 const SYNC_USER = 'google-sync'
+
+// ---------- รหัสนักศึกษา: ตัดสินค่าที่ใช้จริงจากสิ่งที่ชีตระบุ ----------
+
+export interface StudentIdState {
+  /** ค่าที่ทะเบียนใช้จริง */
+  studentId: string
+  origin: 'web' | 'sheet'
+  issue: StudentIdIssue
+  /** ค่าที่ชีตระบุแต่ยังไม่ถูกใช้ (เมื่อ issue ไม่ว่าง) */
+  claimed: string
+}
+
+/**
+ * ตัดสินรหัสนักศึกษาของสมาชิกแต่ละคนจากค่าที่ชีตระบุ โดยไม่ให้มีรหัสซ้ำกันและไม่ย้ายรหัสของใครไปให้คนอื่นเอง
+ * - ชีตระบุค่าที่ถูกรูปแบบและไม่ซ้ำ → ใช้ค่านั้น
+ * - ช่องในชีตว่าง → ล้างเฉพาะค่าที่เคยมาจากชีต ค่าที่กรอกในเว็บคงไว้ (ระบบจะเขียนกลับลงช่องที่ว่างให้เมื่อมีสิทธิ์เขียน)
+ * - ค่าที่ผิดรูปแบบ ซ้ำกันในชีต หรือชนกับรหัสที่สมาชิกคนอื่นถืออยู่ → คงค่าเดิมของทุกฝ่าย แล้วบันทึกเป็นปัญหาให้ผู้ดูแลแก้ที่ชีต
+ * @param current ค่าปัจจุบันของสมาชิกทุกคนในระบบ (รวมคนที่ไม่อยู่ในชีต)
+ * @param claims ค่าที่ชีตระบุ เฉพาะแถวที่ใช้ได้
+ */
+export function planStudentIds(
+  current: Map<string, { studentId: string; origin: 'web' | 'sheet' }>,
+  claims: Map<string, { value: string; issue: StudentIdIssue }>,
+): Map<string, StudentIdState> {
+  const now = (id: string) => current.get(id) ?? { studentId: '', origin: 'web' as const }
+  const plan = new Map<string, StudentIdState>()
+  for (const [id, claim] of claims) {
+    const before = now(id)
+    if (claim.issue) plan.set(id, { ...before, issue: claim.issue, claimed: claim.value.slice(0, 64) })
+    else if (claim.value === '') plan.set(id, { studentId: before.origin === 'sheet' ? '' : before.studentId, origin: 'web', issue: '', claimed: '' })
+    else plan.set(id, { studentId: claim.value, origin: 'sheet', issue: '', claimed: '' })
+  }
+  // ค่าสุดท้ายต้องไม่ซ้ำกับใคร: เมื่อชนกัน ฝ่ายที่กำลังจะเปลี่ยนค่าเป็นฝ่ายถอยกลับไปใช้ค่าเดิมของตัวเอง
+  // การถอยอาจทำให้ชนกับอีกคนที่กำลังจะรับค่านั้น จึงตรวจซ้ำจนไม่มีใครต้องถอย (จำนวนผู้เปลี่ยนค่าลดลงทุกรอบ)
+  for (;;) {
+    const holders = new Map<string, string[]>()
+    for (const id of new Set([...current.keys(), ...plan.keys()])) {
+      const value = (plan.get(id) ?? now(id)).studentId.toLowerCase()
+      if (value) holders.set(value, [...(holders.get(value) ?? []), id])
+    }
+    let reverted = false
+    for (const ids of holders.values()) {
+      if (ids.length < 2) continue
+      for (const id of ids) {
+        const planned = plan.get(id)
+        const before = now(id)
+        if (!planned || planned.studentId.toLowerCase() === before.studentId.toLowerCase()) continue
+        plan.set(id, { ...before, issue: 'taken', claimed: planned.studentId.slice(0, 64) })
+        reverted = true
+      }
+    }
+    if (!reverted) return plan
+  }
+}
 
 /** ปรับสำเนาใน D1 ให้ตรงกับชีตที่อ่านมา คืน true เมื่อมีแถวเปลี่ยน */
 export async function applyTable(env: AppEnv, resource: SyncResource, table: SheetTable): Promise<boolean> {
@@ -324,9 +414,84 @@ export async function applyTable(env: AppEnv, resource: SyncResource, table: She
   for (const member of missing) {
     statements.push(env.DB.prepare(`UPDATE members SET source_state = 'missing', source_missing_at = ?, version = version + 1 WHERE id = ?`).bind(now, member.id))
   }
-  await batchAll(env, statements)
+
+  // รหัสนักศึกษา: ล้างค่าเดิมของคนที่กำลังจะเปลี่ยนก่อน แล้วจึงใส่ค่าใหม่ เพื่อให้การสลับรหัสระหว่างสองแถวไม่ชน unique index กลางทาง
+  const clears: D1PreparedStatement[] = []
+  if (table.cols.studentId !== undefined) {
+    const claims = new Map<string, { value: string; issue: StudentIdIssue }>()
+    for (const row of table.rows) {
+      if (row.values && !table.duplicateIds.has(row.id)) claims.set(row.id, { value: row.values.studentId, issue: row.studentIdIssue })
+    }
+    const plan = planStudentIds(new Map(existing.map((m) => [m.id, { studentId: m.student_id, origin: m.student_id_origin }])), claims)
+    for (const [id, next] of plan) {
+      const before = byId.get(id)
+      const was = before
+        ? { studentId: before.student_id, origin: before.student_id_origin, issue: before.student_id_issue, claimed: before.student_id_claimed }
+        : { studentId: '', origin: 'web', issue: '', claimed: '' }
+      if (was.studentId === next.studentId && was.origin === next.origin && was.issue === next.issue && was.claimed === next.claimed) continue
+      const valueChanged = was.studentId !== next.studentId
+      if (valueChanged && was.studentId !== '') clears.push(env.DB.prepare(`UPDATE members SET student_id = '' WHERE id = ?`).bind(id))
+      statements.push(
+        env.DB.prepare(
+          `UPDATE members SET student_id = ?, student_id_origin = ?, student_id_issue = ?, student_id_claimed = ?, version = version + ?,
+                  updated_by = CASE WHEN ? = 1 THEN ? ELSE updated_by END, updated_at = CASE WHEN ? = 1 THEN ? ELSE updated_at END
+            WHERE id = ?`,
+        ).bind(next.studentId, next.origin, next.issue, next.claimed, valueChanged ? 1 : 0, valueChanged ? 1 : 0, SYNC_USER, valueChanged ? 1 : 0, now, id),
+      )
+    }
+  } else if (existing.some((m) => m.source === 'sheets' && m.source_resource_id === resource.resourceId && (m.student_id_origin !== 'web' || m.student_id_issue !== ''))) {
+    // ชีตนี้ไม่มีคอลัมน์รหัสนักศึกษา: ค่าในเว็บเป็นค่าหลัก และปัญหาที่เคยบันทึกจากคอลัมน์เดิมไม่เกี่ยวข้องแล้ว
+    statements.push(
+      env.DB.prepare(`UPDATE members SET student_id_origin = 'web', student_id_issue = '', student_id_claimed = '' WHERE source = 'sheets' AND source_resource_id = ?`).bind(resource.resourceId),
+    )
+  }
+
+  await batchAll(env, [...clears, ...statements])
   for (const member of missing.slice(0, 20)) await audit(env, null, 'member.source_missing', member.id, resource.resourceId)
   return statements.length > 0
+}
+
+/** ปัญหาของรหัสนักศึกษาที่ต้องดูจากข้อมูลในระบบประกอบ (ชนกับรหัสที่สมาชิกคนอื่นถืออยู่ หรือยังไม่ได้อยู่ในชีต) */
+async function studentIdIssues(env: AppEnv, resource: SyncResource, table: SheetTable): Promise<SyncIssue[]> {
+  if (table.cols.studentId === undefined) return []
+  const { results } = await env.DB.prepare(
+    `SELECT id, student_id, student_id_origin, student_id_issue FROM members WHERE student_id_issue = 'taken' OR (student_id <> '' AND student_id_origin = 'web')`,
+  ).all<Pick<MemberRow, 'id' | 'student_id' | 'student_id_origin' | 'student_id_issue'>>()
+  const byId = new Map(results.map((m) => [m.id, m]))
+  const issues: SyncIssue[] = []
+  for (const row of table.rows) {
+    const member = byId.get(row.id)
+    if (!member || !row.values) continue
+    const where = `แถว ${row.index + 1}`
+    if (member.student_id_issue === 'taken') {
+      issues.push({ code: 'student_id_taken', where, message: 'รหัสนักศึกษาในแถวนี้ตรงกับรหัสที่สมาชิกอีกคนในระบบใช้อยู่ ระบบจึงยังไม่ใช้ค่านี้ ตรวจว่าแถวใดถูกต้องแล้วแก้ให้ไม่ซ้ำ' })
+    } else if (row.values.studentId === '' && member.student_id_origin === 'web' && resource.access !== 'write') {
+      issues.push({ code: 'student_id_not_in_sheet', where, message: 'สมาชิกแถวนี้มีรหัสนักศึกษาที่กรอกไว้ในเว็บ แต่ช่องในชีตยังว่าง และเว็บไม่มีสิทธิ์เขียนชีตนี้ พิมพ์รหัสนักศึกษาลงในชีตเพื่อให้ตรงกัน' })
+    }
+  }
+  return issues
+}
+
+/**
+ * รหัสนักศึกษาที่กรอกไว้ในเว็บก่อนชีตจะมีคอลัมน์นี้: เขียนลงช่องที่ยังว่างของแถวสมาชิกคนนั้น เพื่อให้ชีตกับเว็บตรงกัน
+ * เขียนเฉพาะช่องที่ว่างจริง (ตรวจแบบสูตรทันทีก่อนเขียน) และแถวต้องยังเป็นของรหัสสมาชิกเดิม ไม่เขียนทับค่าหรือสูตรใด
+ */
+async function fillStudentIds(env: AppEnv, gapi: Gapi, resource: SyncResource, table: SheetTable): Promise<boolean> {
+  const col = table.cols.studentId
+  if (col === undefined || resource.access !== 'write') return false
+  const { results } = await env.DB.prepare(`SELECT id, student_id FROM members WHERE student_id <> '' AND student_id_origin = 'web'`).all<{ id: string; student_id: string }>()
+  if (results.length === 0) return false
+  const fromWeb = new Map(results.map((m) => [m.id, m.student_id]))
+  const targets = table.rows.filter((row) => row.values && !table.duplicateIds.has(row.id) && row.values.studentId === '' && fromWeb.has(row.id)).slice(0, MAX_ID_ASSIGN)
+  if (targets.length === 0) return false
+  const config = resource.config as unknown as SheetConfig
+  const raw = await readGrid(gapi, resource.resourceId, config.sheetId, 'FORMULA')
+  const cells = targets
+    .filter((row) => norm(raw[row.index]?.[table.cols.id!]) === row.id && norm(raw[row.index]?.[col]) === '')
+    .map((row) => ({ row: row.index, col, value: fromWeb.get(row.id)! }))
+  if (cells.length === 0) return false
+  await writeCells(gapi, resource.resourceId, config.sheetId, cells)
+  return true
 }
 
 /** แถวที่พิมพ์เพิ่มใน Google โดยยังไม่มีรหัส: ระบบออกรหัสและเขียนลงเฉพาะเซลล์รหัส (และวันที่เพิ่มถ้าเว้นว่าง) ของแถวนั้น */
@@ -347,12 +512,21 @@ registerSyncer('sheets', async ({ env, gapi, resource, remoteVersion }) => {
   let table = await readTable(gapi, resource!)
   // ออกรหัสให้แถวใหม่แล้วอ่านซ้ำ เพื่อให้สำเนาใน D1 มาจากสิ่งที่อยู่ในชีตจริงหลังเขียน
   if (await assignIds(gapi, resource!, table)) table = await readTable(gapi, resource!)
-  const issues = [...table.issues]
+  const extra: SyncIssue[] = []
+  try {
+    if (await fillStudentIds(env, gapi, resource!, table)) table = await readTable(gapi, resource!)
+  } catch (error) {
+    // Google ไม่รับการเขียนช่องรหัสนักศึกษา (เช่น ช่วงที่ถูกป้องกัน): ไม่ทำให้การซิงค์ข้อมูลอื่นหยุด
+    if (!(error instanceof GoogleApiError) || error.status >= 500 || error.status === 429) throw error
+    extra.push({ code: 'student_id_fill_failed', message: 'Google ไม่ให้เว็บเขียนรหัสนักศึกษาลงช่องที่ว่างในชีต (อาจเป็นช่วงที่ถูกป้องกัน) พิมพ์รหัสนักศึกษาลงในชีตเองเพื่อให้ตรงกับในเว็บ' })
+  }
+  const issues = [...table.issues, ...extra]
   for (const row of table.withoutId) {
     if (row.values) issues.push({ code: 'no_id', where: `แถว ${row.index + 1}`, message: resource!.access === 'write' ? 'ยังไม่มีรหัสสมาชิก ระบบจะออกรหัสให้ในรอบถัดไป' : 'ยังไม่มีรหัสสมาชิก และเว็บไม่มีสิทธิ์เขียนชีตนี้ จึงยังไม่นำเข้า' })
   }
-  if (table.hash === remoteVersion) return { changed: false, issues }
-  return { changed: await applyTable(env, resource!, table), remoteVersion: table.hash, issues }
+  if (table.hash === remoteVersion) return { changed: false, issues: [...issues, ...(await studentIdIssues(env, resource!, table))] }
+  const changed = await applyTable(env, resource!, table)
+  return { changed, remoteVersion: table.hash, issues: [...issues, ...(await studentIdIssues(env, resource!, table))] }
 })
 
 // ---------- เว็บ → ชีต ----------
@@ -478,10 +652,11 @@ interface ApiMember {
   source: string
   sourceState: string
 }
-export const toApiMember = (row: MemberRow & { created_at?: string; updated_at?: string }): ApiMember & { createdAt?: string; updatedAt?: string } => ({
+export const toApiMember = (row: MemberRow & { created_at?: string; updated_at?: string }): ApiMember & { createdAt?: string; updatedAt?: string; studentId: string } => ({
   id: row.id,
   name: row.name,
   nickname: row.nickname,
+  studentId: row.student_id,
   role: row.role,
   status: row.status,
   contact: row.contact,
@@ -579,25 +754,28 @@ export async function initCreatedSheet(gapi: Gapi, spreadsheetId: string): Promi
   const sheetId = tabs[0].sheetId
   const [first = []] = await readGrid(gapi, spreadsheetId, sheetId, 'FORMATTED_VALUE', [0, 1])
   const headers = MEMBER_FIELDS.map((field) => DEFAULT_HEADERS[field])
-  if (first.every((cell) => norm(cell) === '')) {
-    await writeCells(gapi, spreadsheetId, sheetId, headers.map((value, col) => ({ row: 0, col, value })))
-  } else if (headers.some((h, i) => normHeader(first[i]) !== normHeader(h))) {
+  // ช่องหัวตารางที่มีข้อความอยู่แล้วต้องตรงกับหัวของระบบ ช่องที่ยังว่างจึงเขียนเติมได้ (รวมชีตที่เริ่มสร้างไว้ก่อนมีคอลัมน์รหัสนักศึกษา)
+  if (headers.some((h, i) => norm(first[i]) !== '' && normHeader(first[i]) !== normHeader(h))) {
     throw new SyncDataError('ชีตที่สร้างไว้มีข้อมูลในแถวแรกที่ไม่ใช่หัวตารางของระบบ จึงไม่เขียนทับ เปิดชีตเพื่อตรวจ')
   }
+  await writeCells(gapi, spreadsheetId, sheetId, headers.map((value, col) => ({ row: 0, col, value })).filter((cell) => norm(first[cell.col]) === ''))
   return { sheetId, headerRow: 1, columns: { ...DEFAULT_HEADERS } }
 }
 
-/** ชีตเดิมที่ไม่มีคอลัมน์รหัส: เพิ่มหัวคอลัมน์รหัสในคอลัมน์ว่างถัดจากคอลัมน์สุดท้ายที่มีหัว ไม่แตะคอลัมน์เดิม */
-export async function addIdColumn(gapi: Gapi, spreadsheetId: string, tab: SheetTab, headerRow: number): Promise<string> {
+/** เพิ่มหัวคอลัมน์ใหม่ในคอลัมน์ว่างถัดจากคอลัมน์สุดท้ายที่มีหัว ไม่แตะคอลัมน์เดิม */
+export async function addHeaderColumn(gapi: Gapi, spreadsheetId: string, tab: SheetTab, headerRow: number, header: string): Promise<string> {
   const [headers = []] = await readGrid(gapi, spreadsheetId, tab.sheetId, 'FORMATTED_VALUE', [headerRow - 1, headerRow])
   let col = headers.length
   while (col > 0 && norm(headers[col - 1]) === '') col--
   if (col >= tab.columnCount) {
     await gapi.json(`${SHEETS_API}/${encodeURIComponent(spreadsheetId)}:batchUpdate`, jsonInit('POST', { requests: [{ appendDimension: { sheetId: tab.sheetId, dimension: 'COLUMNS', length: 1 } }] }))
   }
-  await writeCells(gapi, spreadsheetId, tab.sheetId, [{ row: headerRow - 1, col, value: DEFAULT_HEADERS.id }])
-  return DEFAULT_HEADERS.id
+  await writeCells(gapi, spreadsheetId, tab.sheetId, [{ row: headerRow - 1, col, value: header }])
+  return header
 }
+
+/** ชีตเดิมที่ไม่มีคอลัมน์รหัสสมาชิก: เพิ่มหัวคอลัมน์รหัสต่อท้าย */
+export const addIdColumn = (gapi: Gapi, spreadsheetId: string, tab: SheetTab, headerRow: number) => addHeaderColumn(gapi, spreadsheetId, tab, headerRow, DEFAULT_HEADERS.id)
 
 const nameKey = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ')
 
@@ -630,7 +808,7 @@ export async function pushLocalMembers(env: AppEnv, resource: SyncResource, skip
     if (pending.length > 0) {
       try {
         await appendRows(gapi, resource.resourceId, config.sheetId, pending.map((m) =>
-          rowFor(table.cols, m.id, { name: m.name, nickname: m.nickname, role: m.role, status: m.status, contact: m.contact, note: m.note, addedAt: m.added_at })))
+          rowFor(table.cols, m.id, { name: m.name, nickname: m.nickname, role: m.role, status: m.status, contact: m.contact, note: m.note, addedAt: m.added_at, studentId: m.student_id })))
       } catch (error) {
         if (isUnknownOutcome(error)) throw outcomeUnknown('รายชื่อสมาชิกลงชีต')
         throw error

@@ -18,7 +18,9 @@ export interface SetupOperation {
 
 /** สถานะการตั้งค่าพื้นที่ข้อมูลชมรม (เฉพาะผู้ดูแล) */
 export interface SetupInfo {
-  scopes: { driveFile: boolean; calendarCreated: boolean; calendarExisting: boolean }
+  scopes: { driveFile: boolean; calendarCreated: boolean; calendarExisting: boolean; library: boolean }
+  /** หัวคอลัมน์รหัสนักศึกษาที่จับคู่ไว้ของชีตที่เชื่อม ('' = เชื่อมแล้วแต่ยังไม่มีคอลัมน์นี้, null = ยังไม่ได้เชื่อมชีต) */
+  studentIdColumn: string | null
   picker: PickerConfig & { configured: boolean; missing: string[] }
   local: { members: number; events: number }
   operations: SetupOperation[]

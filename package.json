@@ -16,12 +16,15 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "check:dry-run": "wrangler deploy --dry-run",
     "check:ui": "node scripts/ui-check.mjs",
-    "check:ui:live": "node scripts/ui-check-live.mjs"
+    "check:ui:live": "node scripts/ui-check-live.mjs",
+    "check:ui:member": "node scripts/ui-check-member.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-thai": "^5.3.0",
+    "@noble/hashes": "^2.4.0",
     "jose": "^6.2.12",
     "lucide-react": "^1.51.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router-dom": "^7.18.4"

@@ -19,7 +19,11 @@ export const CONNECT_SCOPES = ['openid', 'email', DRIVE_FILE_SCOPE]
 export const CAL_APP_CREATED_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created'
 export const CAL_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'
 export const CAL_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events'
+// คลังไฟล์ชมรม: อ่านรายการและเนื้อหาไฟล์ทั้งหมดที่บัญชีชมรมเข้าถึงได้ (อ่านอย่างเดียว ไม่ขอสิทธิ์เขียนทั้ง Drive)
+// เป็น restricted scope ของ Google: ขอเฉพาะเมื่อผู้ดูแลกดเปิดใช้คลังไฟล์ และขอผ่านบัญชีชมรมเท่านั้น ไม่อยู่ในขั้นตอนเข้าสู่ระบบของใคร
+export const DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly'
 export const SERVICE_SCOPES: Record<string, string[]> = {
+  library: [DRIVE_READONLY_SCOPE],
   // ปฏิทินที่เว็บสร้างเอง: เห็นและแก้ได้เฉพาะปฏิทินที่สร้างผ่านเว็บนี้
   calendar_created: [CAL_APP_CREATED_SCOPE],
   // ปฏิทินเดิมที่ผู้ดูแลเลือก: ต้องอ่านรายชื่อปฏิทิน และอ่าน/เขียนกำหนดการของปฏิทินที่บัญชีชมรมเข้าถึงได้

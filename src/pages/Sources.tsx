@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
-  CalendarDays, CircleAlert, CircleCheck, ClipboardList, FileSpreadsheet, FileText, Info, Link2, LoaderCircle, RefreshCw, Table, TriangleAlert, Unplug,
+  CalendarDays, CircleAlert, CircleCheck, ClipboardList, FileSpreadsheet, FileText, FolderOpen, Info, Link2, LoaderCircle, RefreshCw, Table, TriangleAlert, Unplug,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { api } from '../api/client'
@@ -14,6 +14,8 @@ import { DATA_SOURCES, SOURCE_STATUS_LABELS } from '../data/sources'
 import type { DataSource, SourceId } from '../data/sources'
 import { GOOGLE_STATUS_LABELS, resourceStatusLabel, useSourcesStatus } from '../data/sourcesStatus'
 import type { GoogleStatus, ResourceId, SourcesStatus } from '../data/sourcesStatus'
+import { libraryApi } from '../library/api'
+import type { LibraryStatus } from '../library/api'
 import { formatTimestamp } from '../lib/datetime'
 import { IS_DEMO } from '../mode'
 import { DataSpace } from './SourcesSetup'
@@ -126,13 +128,13 @@ const LIVE_SOURCES: LiveSource[] = [
     id: 'docs',
     name: 'Google Docs',
     kind: 'เอกสารของชมรม',
-    summary: 'สร้างและแก้เอกสารข้อความจากหน้า “เอกสาร” เนื้อหาเก็บเป็นไฟล์ Google Docs ในบัญชีของชมรม เว็บตรวจฉบับใหม่ระหว่างเปิดเอกสารและตามการเปลี่ยนชื่อใน Google',
+    summary: 'สร้างเอกสารใหม่จากหน้า “ไฟล์ชมรม” (ตั้งชื่อแล้วไปเขียนใน Google Docs) เนื้อหาเก็บเป็นไฟล์ Google Docs ในบัญชีของชมรม เว็บตามการเปลี่ยนชื่อใน Google',
     setup: [
       { label: 'บัญชีที่ใช้', detail: 'ไฟล์ถูกสร้างใน Google Drive ของบัญชีชมรมที่เชื่อมไว้ด้านบน' },
       { label: 'ขอบเขตสิทธิ์', detail: 'เว็บไซต์เข้าถึงได้เฉพาะไฟล์ที่สร้างผ่านเว็บไซต์นี้ และไฟล์เดิมที่ผู้ดูแลเลือกผ่านหน้าต่างเลือกไฟล์ของ Google (สิทธิ์ drive.file) ไม่เห็นไฟล์อื่นใน Drive' },
       { label: 'การแชร์', detail: 'เว็บไซต์ไม่เปลี่ยนการแชร์ของไฟล์ ทีมงานแก้ผ่านเว็บได้ตามสิทธิ์ในเว็บ ส่วนการเปิดใน Google Docs โดยตรงต้องมีสิทธิ์ใน Google ของตัวเอง' },
     ],
-    note: 'ใช้ได้เมื่อเชื่อมบัญชี Google ของชมรมแล้ว แก้ในเว็บได้เฉพาะเอกสารข้อความพื้นฐาน เอกสารที่มีตาราง รูป รายการ หรือหลายแท็บเปิดอ่านได้อย่างเดียวและให้แก้ใน Google Docs',
+    note: 'ใช้ได้เมื่อเชื่อมบัญชี Google ของชมรมแล้ว เอกสารเปิดดูตัวอย่างในเว็บได้จากหน้า “ไฟล์ชมรม” การแก้เนื้อหาทำใน Google Docs (เอกสารข้อความล้วนที่สร้างจากเว็บยังแก้ข้อความในเว็บได้จากหน้าตัวอย่าง)',
   },
   fromPlanned('excel', 'Excel อยู่นอกงานซิงค์กับ Google ยังไม่เปิดใช้งาน ยังไม่มีการเชื่อมต่อ ส่ง หรือรับข้อมูลใด ๆ'),
 ]
@@ -181,7 +183,7 @@ function LiveSourcesPage() {
     )
   }, [params, setParams])
 
-  const run = async (kind: 'connect' | 'check' | 'disconnect', service?: 'calendar_created' | 'calendar_existing') => {
+  const run = async (kind: 'connect' | 'check' | 'disconnect', service?: 'calendar_created' | 'calendar_existing' | 'library') => {
     setBusy(kind)
     setActionError('')
     setResult(null)
@@ -316,6 +318,8 @@ function LiveSourcesPage() {
             )}
           </section>
 
+          <LibraryCard isAdmin={isAdmin} busy={busy !== null} onEnable={() => run('connect', 'library')} />
+
           <DataSpace google={google} isAdmin={isAdmin} onRequestScope={(service) => run('connect', service)} scopeBusy={busy !== null} />
 
           <ul className="source-grid">
@@ -356,6 +360,78 @@ function LiveSourcesPage() {
         </ConfirmDialog>
       )}
     </>
+  )
+}
+
+/**
+ * คลังไฟล์ชมรม: สิทธิ์อ่านไฟล์ทั้งหมดของบัญชีชมรม (drive.readonly) ขอแยกจากการเชื่อมบัญชีและจากแหล่งข้อมูลที่ซิงค์
+ * สถานะมาจากสิทธิ์ที่ Google ยืนยันว่าให้แล้วจริง ไม่ใช่จากการที่เชื่อมบัญชีแล้ว
+ */
+function LibraryCard({ isAdmin, busy, onEnable }: { isAdmin: boolean; busy: boolean; onEnable(): void }) {
+  const [status, setStatus] = useState<LibraryStatus | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    libraryApi.status().then(setStatus, () => setFailed(true))
+  }, [])
+
+  return (
+    <section className="card library-card" aria-labelledby="library-card-title">
+      <div className="card-header">
+        <h2 id="library-card-title">
+          <FolderOpen aria-hidden="true" size={20} />
+          คลังไฟล์ชมรม
+        </h2>
+        {status && <span className={`badge badge-${status.enabled ? 'active' : 'neutral'}`}>{status.enabled ? 'เปิดใช้แล้ว' : 'ยังไม่ได้เปิดใช้'}</span>}
+      </div>
+      <p className="field-hint">
+        หน้า “ไฟล์ชมรม” ของทีมงานและของสมาชิกแสดงไฟล์ทั้งหมดที่บัญชี Google ของชมรมเข้าถึงได้ (อ่านอย่างเดียว) โดยไม่ต้องเลือกหรือนำเข้าทีละไฟล์
+        แยกจากชีต ปฏิทิน และฟอร์มที่ซิงค์ด้านล่าง: การเห็นไฟล์ในคลังไม่ทำให้ไฟล์นั้นถูกนำไปสร้างสมาชิกหรือกำหนดการ
+      </p>
+      {failed && <p className="muted">อ่านสถานะคลังไฟล์ไม่ได้ในตอนนี้ โหลดหน้านี้ใหม่เพื่อลองอีกครั้ง</p>}
+      {status && !status.enabled && (
+        <>
+          <p className="notice">
+            <Info aria-hidden="true" size={18} />
+            <span>{status.message}</span>
+          </p>
+          {status.canEnable && (
+            <>
+              <div className="button-row">
+                <button type="button" className="button button-primary" disabled={busy} onClick={onEnable}>
+                  <FolderOpen aria-hidden="true" size={18} />
+                  เปิดใช้คลังไฟล์ Google
+                </button>
+              </div>
+              <p className="field-hint">
+                ระบบจะพาไปหน้าขออนุญาตของ Google ให้เลือกบัญชีชมรม แล้วอนุญาตให้เว็บนี้ “ดูและดาวน์โหลดไฟล์ทั้งหมดใน Google Drive” ของบัญชีชมรม (อ่านอย่างเดียว
+                ไม่ขอสิทธิ์แก้หรือลบไฟล์) สิทธิ์นี้เป็นสิทธิ์ระดับ restricted ของ Google: ต้องเพิ่มในหน้า OAuth consent screen ของโครงการก่อน (ดู README)
+              </p>
+            </>
+          )}
+          {!isAdmin && status.reason === 'missing_scope' && <p className="field-hint">การเปิดใช้คลังไฟล์ทำได้เฉพาะผู้ดูแลระบบ</p>}
+        </>
+      )}
+      {status?.enabled && (
+        <>
+          <p>
+            <CircleCheck aria-hidden="true" size={18} className="inline-icon" /> บัญชีชมรมอนุญาตให้เว็บอ่านไฟล์แล้ว
+            {status.lastSuccessAt ? ` อ่านรายการจาก Google สำเร็จล่าสุดเมื่อ ${formatTimestamp(status.lastSuccessAt)}` : ' ยังไม่มีการอ่านรายการจาก Google'}
+          </p>
+          <p className="notice">
+            <Info aria-hidden="true" size={18} />
+            <span>
+              สมาชิกที่เข้าสู่ระบบด้วยรหัสนักศึกษาเปิดดูไฟล์ทุกไฟล์ในคลังได้ รวมถึงชีตทะเบียนสมาชิกและชีตคำตอบของฟอร์ม ถ้ามีไฟล์ที่ไม่ควรให้สมาชิกเห็น
+              อย่าเก็บหรือแชร์ไฟล์นั้นไว้กับบัญชี Google ของชมรม
+            </span>
+          </p>
+          <div className="button-row">
+            <Link to="/files" className="button">
+              ไปหน้าไฟล์ชมรม
+            </Link>
+          </div>
+        </>
+      )}
+    </section>
   )
 }
 

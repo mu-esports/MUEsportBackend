@@ -10,6 +10,8 @@ export const setCsrfToken = (token: string | null) => {
 export const onUnauthorized = (handler: (() => void) | null) => {
   unauthorizedHandler = handler
 }
+/** ใช้กับคำขอที่ไม่ได้ผ่าน api() (เช่น เนื้อหาไฟล์) เมื่อ server ตอบว่าเซสชันใช้ไม่ได้แล้ว */
+export const notifyUnauthorized = () => unauthorizedHandler?.()
 
 interface Options {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'

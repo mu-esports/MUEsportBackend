@@ -5,11 +5,7 @@ import { LoaderCircle, TriangleAlert } from 'lucide-react'
 import { Dialog } from '../components/Dialog'
 import { useAuth } from './AuthProvider'
 
-/** ครอบทุกหน้าที่ต้องเข้าสู่ระบบ สิทธิ์จริงตรวจที่ server ทุกคำขอ ส่วนนี้ดูแลเฉพาะสิ่งที่ผู้ใช้เห็น */
-export function RequireAuth({ children }: { children: ReactNode }) {
-  const { status, reload } = useAuth()
-  const location = useLocation()
-
+function AuthPending({ status, reload }: { status: 'loading' | 'error'; reload(): void }) {
   if (status === 'loading') {
     return (
       <div className="auth-screen" role="status">
@@ -18,23 +14,70 @@ export function RequireAuth({ children }: { children: ReactNode }) {
       </div>
     )
   }
-  if (status === 'error') {
-    return (
-      <div className="auth-screen" role="alert">
-        <TriangleAlert aria-hidden="true" size={28} />
-        <p className="empty-state-title">เชื่อมต่อระบบกลางไม่ได้</p>
-        <p className="empty-state-text">ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง</p>
-        <button type="button" className="button button-primary" onClick={reload}>
-          ลองอีกครั้ง
-        </button>
-      </div>
-    )
-  }
+  return (
+    <div className="auth-screen" role="alert">
+      <TriangleAlert aria-hidden="true" size={28} />
+      <p className="empty-state-title">เชื่อมต่อระบบกลางไม่ได้</p>
+      <p className="empty-state-text">ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง</p>
+      <button type="button" className="button button-primary" onClick={reload}>
+        ลองอีกครั้ง
+      </button>
+    </div>
+  )
+}
+
+/** ครอบทุกหน้าหลังบ้าน: ต้องเป็น session ของทีมงาน สิทธิ์จริงตรวจที่ server ทุกคำขอ ส่วนนี้ดูแลเฉพาะสิ่งที่ผู้ใช้เห็น */
+export function RequireAuth({ children }: { children: ReactNode }) {
+  const { status, user, reload } = useAuth()
+  const location = useLocation()
+
+  if (status === 'loading' || status === 'error') return <AuthPending status={status} reload={reload} />
   if (status === 'anonymous') {
     const target = location.pathname + location.search
     return <Navigate to={target === '/' ? '/login' : `/login?return=${encodeURIComponent(target)}`} replace />
   }
+  // บัญชีสมาชิกไม่มีหน้าหลังบ้าน: พากลับไปหน้าของสมาชิก (server ปฏิเสธ API หลังบ้านอยู่แล้ว)
+  if (!user) return <Navigate to="/member" replace />
   return <SessionExpired active={status === 'expired'}>{children}</SessionExpired>
+}
+
+/**
+ * ครอบทุกหน้าของสมาชิก: ต้องเป็น session ของสมาชิก และถ้ายังใช้รหัสผ่านชั่วคราวจะเปิดได้เฉพาะหน้าเปลี่ยนรหัสผ่าน
+ * (server บังคับกฎเดียวกันกับทุก API ส่วนนี้ทำให้หน้าเว็บพาไปถูกที่)
+ */
+export function RequireMember({ children }: { children: ReactNode }) {
+  const { status, user, member, reload } = useAuth()
+  const location = useLocation()
+
+  if (status === 'loading' || status === 'error') return <AuthPending status={status} reload={reload} />
+  const target = location.pathname + location.search
+  if (status === 'anonymous') return <Navigate to={`/login?return=${encodeURIComponent(target)}`} replace />
+  // ทีมงานใช้หลังบ้าน ไม่ใช้หน้าของสมาชิก
+  if (user || !member) return <Navigate to="/" replace />
+  if (member.mustChangePassword && location.pathname !== '/member/password') return <Navigate to="/member/password" replace />
+  return (
+    <>
+      {children}
+      {status === 'expired' && (
+        <Dialog
+          title="เซสชันหมดอายุ"
+          size="sm"
+          dismissible={false}
+          onRequestClose={() => undefined}
+          footer={
+            <a className="button button-primary" href={`/login?return=${encodeURIComponent(target)}`} data-autofocus>
+              เข้าสู่ระบบอีกครั้ง
+            </a>
+          }
+        >
+          <div className="confirm-body">
+            <p>ระบบออกจากระบบให้แล้ว (หมดเวลา ทีมงานตั้งรหัสผ่านใหม่ หรือบัญชีถูกปิด) เข้าสู่ระบบอีกครั้งเพื่อใช้งานต่อ</p>
+            <p className="field-hint">สิ่งที่กรอกไว้และยังไม่ได้บันทึกในหน้านี้จะไม่ถูกบันทึก</p>
+          </div>
+        </Dialog>
+      )}
+    </>
+  )
 }
 
 // แถบแจ้งเซสชันหมดอายุถูกวางโดย Layout ในส่วนที่เกาะด้านบนร่วมกับหัวเว็บ จึงไม่ซ้อนทับกันทั้งก่อนและหลังเลื่อนหน้า

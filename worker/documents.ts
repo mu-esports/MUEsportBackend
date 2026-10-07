@@ -1,10 +1,11 @@
 import { MAX_CONTENT_UNITS, MAX_TITLE_LENGTH, normalizeText, parseDocument, planEdit } from './docs'
 import type { ParsedDocument } from './docs'
 import { nowIso } from './env'
-import type { AppEnv, Ctx, Session } from './env'
+import type { AppEnv, Ctx, StaffSession as Session } from './env'
 import { getAccessToken, googleFetch } from './google'
 import { HttpError, json, readJson } from './http'
 import { audit, requireMutation, requireUser } from './session'
+import { invalidateLists } from './library'
 import { checkFile } from './setup'
 import { batchAll, bumpDataVersion, GoogleApiError, makeGapi, registerSyncer, toHttpError } from './sync'
 import { hashPayload, idempotencyKey, invalid } from './validation'
@@ -35,6 +36,8 @@ const toDocument = (row: DocumentRow) => ({
   title: row.title,
   status: row.status,
   statusDetail: row.status_detail,
+  // รหัสไฟล์ใน Google ใช้เปิดตัวอย่างในหน้าไฟล์ชมรม
+  googleId: row.google_document_id,
   googleUrl: `https://docs.google.com/document/d/${row.google_document_id}/edit`,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -181,6 +184,12 @@ async function requireDocument(env: AppEnv, id: string): Promise<DocumentRow> {
   return row
 }
 
+/** GET /api/documents/:id/file — รายการที่ลงทะเบียนไว้ (จาก D1 ไม่เรียก Google) ใช้พาลิงก์เอกสารเดิมไปยังตัวอย่างในหน้าไฟล์ชมรม */
+async function fileOf(ctx: Ctx, id: string): Promise<Response> {
+  requireUser(ctx)
+  return json({ document: toDocument(await requireDocument(ctx.env, id)) })
+}
+
 async function read(ctx: Ctx, id: string): Promise<Response> {
   requireUser(ctx)
   const row = await requireDocument(ctx.env, id)
@@ -233,6 +242,7 @@ async function linkExisting(ctx: Ctx): Promise<Response> {
   if (result.meta.changes !== 1) throw new HttpError(409, 'already_linked', 'เอกสารนี้อยู่ในรายการเอกสารของเว็บอยู่แล้ว ไม่ได้เพิ่มซ้ำ')
   await audit(ctx.env, session.user.id, 'document.linked', id)
   await bumpDataVersion(ctx.env, 'docs')
+  await invalidateLists(ctx.env)
   return json({ document: toDocument((await getDocument(ctx.env, id))!), content: toContent(parsed) }, 201)
 }
 
@@ -622,6 +632,7 @@ async function runSteps(env: AppEnv, session: Session, opId: string, owner: stri
       if (done.status === 'completed' && done.document_id) return documentResponse(env, done.document_id, { replayed: true })
       throw inProgress(done)
     }
+    await invalidateLists(env)
     return documentResponse(env, done.document_id, { content: toContent(parsed) }, 201)
   } catch (error) {
     const known = error instanceof HttpError ? error : new HttpError(500, 'internal_error', 'ระบบขัดข้อง')
@@ -742,6 +753,7 @@ export async function handleDocuments(ctx: Ctx, parts: string[]): Promise<Respon
   }
   if (parts.length === 1 && parts[0] === 'link' && method === 'POST') return linkExisting(ctx)
   if (parts.length === 2 && parts[1] === 'revision' && method === 'GET') return revision(ctx, parts[0])
+  if (parts.length === 2 && parts[1] === 'file' && method === 'GET') return fileOf(ctx, parts[0])
   if (parts[0] === 'operations') {
     if (parts.length === 1 && method === 'GET') return listOperations(ctx)
     if (parts.length === 3 && parts[2] === 'resume' && method === 'POST') return resumeOperation(ctx, parts[1])

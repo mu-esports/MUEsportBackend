@@ -1,8 +1,10 @@
+import { handleMemberSelf } from './accounts'
 import { handleAuth, startConnect } from './auth'
 import { handleDocuments } from './documents'
 import type { AppEnv, Ctx } from './env'
 import { handleEvents } from './events'
 import { handleForms } from './gforms'
+import { handleLibrary } from './library'
 import { isAuthConfigured } from './google'
 import { errorResponse, HttpError, json, redirect } from './http'
 import { handleMembers } from './members'
@@ -17,15 +19,19 @@ async function handleApi(ctx: Ctx): Promise<Response> {
   const [resource, ...rest] = parts
 
   if (resource === 'session' && rest.length === 0 && ctx.request.method === 'GET') {
+    // user = ทีมงาน (Google), member = สมาชิก (รหัสนักศึกษา) มีได้อย่างใดอย่างหนึ่งตามชนิดของ session ที่ server ตรวจแล้ว
     return json({
       authConfigured: isAuthConfigured(ctx.env),
-      user: ctx.session?.user ?? null,
+      user: ctx.session?.kind === 'staff' ? ctx.session.user : null,
+      member: ctx.session?.kind === 'member' ? ctx.session.member : null,
       csrfToken: ctx.session?.csrfToken ?? null,
     })
   }
 
   let response: Response | null = null
   if (resource === 'members') response = await handleMembers(ctx, rest)
+  else if (resource === 'member') response = await handleMemberSelf(ctx, rest)
+  else if (resource === 'library') response = await handleLibrary(ctx, rest)
   else if (resource === 'events') response = await handleEvents(ctx, rest)
   else if (resource === 'users') response = await handleUsers(ctx, rest)
   else if (resource === 'documents') response = await handleDocuments(ctx, rest)

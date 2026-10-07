@@ -2,15 +2,16 @@ import { nowIso } from './env'
 import type { AppEnv, Ctx } from './env'
 import { CAL_API, calendarUrl, canRead, canWrite, listCalendars, previewCalendar, previewLocalEvents, pushLocalEvents } from './gcal'
 import { fetchForm, FORM_MIME, formEditUrl, FORMS_API, initCreatedForm, describeItem } from './gforms'
-import { CAL_APP_CREATED_SCOPE, CAL_EVENTS_SCOPE, CAL_LIST_SCOPE, DRIVE_FILE_SCOPE, getAccessToken, grantedScopes } from './google'
+import { CAL_APP_CREATED_SCOPE, CAL_EVENTS_SCOPE, CAL_LIST_SCOPE, DRIVE_FILE_SCOPE, DRIVE_READONLY_SCOPE, getAccessToken, grantedScopes } from './google'
 import { HttpError, json, readJson } from './http'
 import { audit, requireMutation, requireUser } from './session'
 import {
-  addIdColumn, initCreatedSheet, listTabs, MEMBER_FIELDS, parseTable, previewLocalMembers, previewSheet, pushLocalMembers, readGrid, SHEET_MIME, sheetUrl,
+  addHeaderColumn, addIdColumn, DEFAULT_HEADERS, initCreatedSheet, listTabs, MEMBER_FIELDS, parseTable, previewLocalMembers, previewSheet, pushLocalMembers, readGrid, SHEET_MIME, sheetUrl,
+  suggestColumns,
 } from './sheets'
 import type { MemberField, SheetConfig } from './sheets'
 import {
-  GoogleApiError, jsonInit, loadResource, makeGapi, RESOURCE_KINDS, runSync, saveResource, SYNC_KINDS, SyncDataError, syncStatus, syncStatuses, toHttpError,
+  GoogleApiError, jsonInit, loadResource, makeGapi, patchResource, RESOURCE_KINDS, runSync, saveResource, SYNC_KINDS, SyncDataError, syncStatus, syncStatuses, toHttpError,
 } from './sync'
 import type { Gapi, ResourceKind, SyncKind } from './sync'
 import { idempotencyKey, invalid, text } from './validation'
@@ -89,7 +90,11 @@ async function overview(env: AppEnv) {
       driveFile: scopes.has(DRIVE_FILE_SCOPE),
       calendarCreated: scopes.has(CAL_APP_CREATED_SCOPE) || scopes.has(CAL_EVENTS_SCOPE),
       calendarExisting: scopes.has(CAL_EVENTS_SCOPE) && scopes.has(CAL_LIST_SCOPE),
+      // คลังไฟล์ชมรม: อ่านไฟล์ทั้งหมดที่บัญชีชมรมเข้าถึงได้ (ขอแยกเมื่อผู้ดูแลเปิดใช้)
+      library: scopes.has(DRIVE_READONLY_SCOPE),
     },
+    // ชีตที่เชื่อมอยู่มีคอลัมน์รหัสนักศึกษาที่จับคู่แล้วหรือยัง (null = ยังไม่ได้เชื่อมชีต)
+    studentIdColumn: await linkedStudentIdColumn(env),
     // ค่าที่เบราว์เซอร์ต้องใช้เปิด Google Picker ไม่มีค่าลับ (client ID และ API key เป็นค่าที่เปิดเผยในหน้าเว็บโดยธรรมชาติ)
     picker: {
       configured: missingPicker.length === 0,
@@ -111,6 +116,73 @@ async function overview(env: AppEnv) {
     })),
     sync: await syncStatuses(env),
   }
+}
+
+/** หัวคอลัมน์รหัสนักศึกษาที่จับคู่ไว้ของชีตที่เชื่อม ('' = เชื่อมแล้วแต่ยังไม่มีคอลัมน์นี้, null = ยังไม่ได้เชื่อมชีต) */
+async function linkedStudentIdColumn(env: AppEnv): Promise<string | null> {
+  const sheet = await loadResource(env, 'sheets')
+  return sheet ? ((sheet.config as unknown as SheetConfig).columns?.studentId ?? '') : null
+}
+
+/**
+ * คอลัมน์รหัสนักศึกษาของชีตที่เชื่อมอยู่แล้ว: ผู้ดูแลจับคู่คอลัมน์ที่มีอยู่ หรือให้ระบบเพิ่มคอลัมน์ต่อท้าย โดยไม่ต้องยกเลิกการเชื่อม
+ * รหัสนักศึกษาที่กรอกไว้ในเว็บก่อนหน้านี้ไม่ถูกล้าง: ระบบเขียนลงช่องที่ยังว่างของแถวสมาชิกคนนั้นในรอบซิงค์ถัดไป
+ * ไม่มีข้อมูลรหัสผ่านหรือบัญชีถูกเขียนลงชีตในขั้นตอนใด
+ */
+async function studentIdColumn(ctx: Ctx): Promise<Response> {
+  const read = ctx.request.method === 'GET'
+  const session = read ? requireUser(ctx, 'admin') : await requireMutation(ctx, 'admin')
+  const resource = await loadResource(ctx.env, 'sheets')
+  if (!resource) throw new HttpError(409, 'not_linked', 'ยังไม่ได้เชื่อมชีต')
+  const config = resource.config as unknown as SheetConfig
+  const gapi = makeGapi(ctx.env)
+  try {
+    const [row = []] = await readGrid(gapi, resource.resourceId, config.sheetId, 'FORMATTED_VALUE', [config.headerRow - 1, config.headerRow])
+    const headers = row.map((cell) => (typeof cell === 'string' ? cell.trim() : String(cell ?? '').trim()))
+    const used = new Set(Object.entries(config.columns).filter(([field]) => field !== 'studentId').map(([, header]) => header.trim().toLowerCase()))
+    const free = headers.filter((header) => header !== '' && !used.has(header.toLowerCase()))
+    if (read) {
+      return json({
+        mapped: config.columns.studentId ?? null,
+        headers: [...new Set(free)],
+        suggestion: suggestColumns(free).studentId ?? null,
+        writable: resource.access === 'write',
+        defaultHeader: DEFAULT_HEADERS.studentId,
+      })
+    }
+
+    const body = await readJson(ctx.request)
+    let header: string
+    if (body.add === true) {
+      const existing = free.find((h) => h.toLowerCase() === DEFAULT_HEADERS.studentId.toLowerCase())
+      if (existing) header = existing
+      else {
+        if (resource.access !== 'write') throw new HttpError(403, 'source_read_only', 'บัญชี Google ของชมรมแก้ชีตนี้ไม่ได้ จึงเพิ่มคอลัมน์รหัสนักศึกษาไม่ได้ เพิ่มคอลัมน์ในชีตเองแล้วเลือกจับคู่แทน')
+        const { tabs } = await listTabs(gapi, resource.resourceId)
+        const tab = tabs.find((t) => t.sheetId === config.sheetId)
+        if (!tab) throw new SyncDataError('ไม่พบแท็บของชีตที่เชื่อมไว้ อาจถูกลบจากไฟล์')
+        header = await addHeaderColumn(gapi, resource.resourceId, tab, config.headerRow, DEFAULT_HEADERS.studentId)
+      }
+    } else {
+      header = text(body, 'header', 'หัวคอลัมน์', 200, true)
+      if (!free.some((h) => h.toLowerCase() === header.toLowerCase())) throw invalid('ไม่พบคอลัมน์นี้ในแถวหัวตารางของชีต หรือคอลัมน์นี้ถูกจับคู่กับฟิลด์อื่นแล้ว', 'header')
+    }
+    const next: SheetConfig = { ...config, columns: { ...config.columns, studentId: header } }
+    // อ่านด้วยการจับคู่ใหม่หนึ่งครั้งก่อนบันทึก: หัวคอลัมน์ที่หายหรือซ้ำจะไม่ถูกบันทึก
+    parseTable(await readGrid(gapi, resource.resourceId, config.sheetId), next, '')
+    await ctx.env.DB.batch([
+      // ค่าที่มีอยู่ในเว็บถือเป็นค่าที่กรอกในเว็บ จึงไม่ถูกล้างเมื่อช่องในคอลัมน์ที่เพิ่งจับคู่ยังว่าง
+      ctx.env.DB.prepare(`UPDATE members SET student_id_origin = 'web' WHERE source = 'sheets'`),
+      ctx.env.DB.prepare(`UPDATE sync_state SET remote_version = NULL, last_attempt_at = NULL, next_attempt_at = NULL WHERE kind = 'sheets'`),
+    ])
+    await patchResource(ctx.env, 'sheets', { config: next as unknown as Record<string, unknown> })
+    await audit(ctx.env, session.user.id, 'sync.student_id_column', 'sheets', body.add === true ? 'added' : 'mapped')
+  } catch (error) {
+    if (error instanceof SyncDataError) throw new HttpError(422, 'malformed', `${error.message} ยังไม่ได้เปลี่ยนการจับคู่`)
+    throw toHttpError(error)
+  }
+  const first = await runSync(ctx.env, 'sheets', { force: true })
+  return json({ status: first.status, mapped: await linkedStudentIdColumn(ctx.env) })
 }
 
 // ---------- ตรวจแหล่งเดิมกับ Google ----------
@@ -494,6 +566,7 @@ export async function handleSetup(ctx: Ctx, parts: string[]): Promise<Response |
       throw toHttpError(error)
     }
   }
+  if (parts.length === 1 && parts[0] === 'student-id-column' && (method === 'GET' || method === 'POST')) return studentIdColumn(ctx)
   if (parts.length === 1 && method === 'POST') {
     if (parts[0] === 'create') return create(ctx)
     if (parts[0] === 'preview') return preview(ctx)

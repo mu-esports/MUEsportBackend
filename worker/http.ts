@@ -24,7 +24,9 @@ export function json(data: unknown, status = 200, headers: HeadersInit = {}): Re
 }
 
 export function errorResponse(error: HttpError): Response {
-  return json({ error: error.code, message: error.message, ...error.extra }, error.status)
+  const retryAfter = error.extra.retryAfterSeconds
+  const headers: Record<string, string> = typeof retryAfter === 'number' && retryAfter > 0 ? { 'Retry-After': String(Math.ceil(retryAfter)) } : {}
+  return json({ error: error.code, message: error.message, ...error.extra }, error.status, headers)
 }
 
 export function redirect(location: string, cookies: string[] = []): Response {

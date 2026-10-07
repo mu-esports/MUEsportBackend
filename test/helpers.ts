@@ -4,6 +4,7 @@ import type { D1Migration } from 'cloudflare:test'
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { vi } from 'vitest'
 import { randomToken, sha256Hex } from '../worker/crypto'
+import { hashPassword } from '../worker/password'
 import type { AppEnv, Role } from '../worker/env'
 import worker from '../worker/index'
 
@@ -12,6 +13,7 @@ export const ORIGIN = 'https://staff.example.test'
 export const CLUB_EMAIL = 'muesport2567@gmail.com'
 
 const TABLES = [
+  'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
   'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',
   'idempotency_keys', 'events', 'members', 'oauth_states', 'sessions', 'users',
@@ -47,6 +49,69 @@ export async function seedSession(userId: string, expiresInMs = 3_600_000): Prom
     .bind(await sha256Hex(token), userId, new Date().toISOString(), new Date(Date.now() + expiresInMs).toISOString())
     .run()
   return { cookie: `mu_session=${token}`, csrf: await sha256Hex(`csrf:${token}`) }
+}
+
+// ---------- สมาชิกและบัญชีสมาชิก (สร้างในฐานทดสอบโดยตรง) ----------
+
+export const MEMBER_PASSWORD = 'Sunny-Lake-4821'
+let memberPasswordHash: string | null = null
+/** hash ของรหัสผ่านทดสอบ คำนวณด้วยค่า Argon2id จริงครั้งเดียวต่อ isolate แล้วใช้ซ้ำ (การคำนวณหนึ่งครั้งใช้เวลาราว 0.15 วินาที) */
+export const testPasswordHash = () => (memberPasswordHash ??= hashPassword(MEMBER_PASSWORD))
+
+interface SeedMemberOptions {
+  name?: string
+  nickname?: string
+  role?: 'member' | 'staff' | 'admin'
+  status?: 'active' | 'suspended'
+  studentId?: string
+  contact?: string
+  note?: string
+}
+
+export async function seedMember(options: SeedMemberOptions = {}): Promise<{ id: string }> {
+  const id = crypto.randomUUID()
+  const now = new Date().toISOString()
+  await env.DB.prepare(
+    `INSERT INTO members (id, name, nickname, role, status, contact, note, added_at, version, created_by, updated_by, created_at, updated_at, student_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '2026-10-01', 1, 'seed', 'seed', ?, ?, ?)`,
+  )
+    .bind(id, options.name ?? 'สมหญิง ทดสอบ', options.nickname ?? 'หญิง', options.role ?? 'member', options.status ?? 'active', options.contact ?? '', options.note ?? '', now, now, options.studentId ?? '')
+    .run()
+  return { id }
+}
+
+interface SeedAccountOptions {
+  loginId: string
+  mustChange?: boolean
+  status?: 'active' | 'disabled'
+  passwordHash?: string
+}
+
+export async function seedAccount(memberId: string, options: SeedAccountOptions): Promise<void> {
+  const now = new Date().toISOString()
+  await env.DB.prepare(
+    `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'seed-admin', 'seed-admin', ?, ?)`,
+  )
+    .bind(memberId, options.loginId, options.passwordHash ?? testPasswordHash(), options.status ?? 'active', options.mustChange ? 1 : 0, now, now, now)
+    .run()
+}
+
+export async function seedMemberSession(memberId: string, expiresInMs = 3_600_000): Promise<Actor> {
+  const token = `m.${randomToken()}`
+  await env.DB.prepare('INSERT INTO member_sessions (token_hash, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(await sha256Hex(token), memberId, new Date().toISOString(), new Date(Date.now() + expiresInMs).toISOString())
+    .run()
+  return { id: memberId, cookie: `mu_session=${token}`, csrf: await sha256Hex(`csrf:${token}`) }
+}
+
+let studentCounter = 0
+/** สมาชิกที่มีบัญชีและ session พร้อมใช้ในขั้นตอนเดียว */
+export async function seedMemberActor(options: SeedMemberOptions & { mustChange?: boolean } = {}): Promise<Actor & { studentId: string }> {
+  const studentId = options.studentId ?? `65${String(++studentCounter).padStart(5, '0')}`
+  const member = await seedMember({ ...options, studentId })
+  await seedAccount(member.id, { loginId: studentId, mustChange: options.mustChange })
+  return { ...(await seedMemberSession(member.id)), studentId }
 }
 
 interface CallOptions {
