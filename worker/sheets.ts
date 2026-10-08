@@ -9,6 +9,7 @@ import {
 } from './sync'
 import type { Gapi, SyncIssue, SyncResource } from './sync'
 import { bangkokToday, isStudentId, STUDENT_ID_RULE, versionConflict } from './validation'
+import { normalizeStudentId, studentIdKey } from '../src/lib/student-id'
 
 /**
  * Google Sheets ↔ ทะเบียนสมาชิก
@@ -201,8 +202,9 @@ export function parseTable(values: unknown[][], config: SheetConfig, hash: strin
     const id = cell(raw, 'id')
     if (id.length > 64) problems.push('รหัสสมาชิกยาวเกิน 64 ตัวอักษร')
     // รหัสนักศึกษาผิดรูปแบบไม่ทำให้ทั้งแถวถูกข้าม: ข้อมูลอื่นยังซิงค์ตามปกติ ส่วนรหัสนักศึกษาคงค่าเดิมในเว็บไว้จนกว่าจะแก้ที่ชีต
-    const studentId = cell(raw, 'studentId')
-    const studentIdIssue: StudentIdIssue = studentId !== '' && !isStudentId(studentId) ? 'invalid' : ''
+    const rawStudentId = cell(raw, 'studentId')
+    const studentIdIssue: StudentIdIssue = rawStudentId !== '' && !isStudentId(rawStudentId) ? 'invalid' : ''
+    const studentId = studentIdIssue ? rawStudentId : normalizeStudentId(rawStudentId)
     if (studentIdIssue) issues.push({ code: 'invalid_student_id', where, message: `รหัสนักศึกษาในแถวนี้${STUDENT_ID_RULE} ระบบจึงยังไม่ใช้ค่านี้` })
     const parsed: ParsedRow = {
       index,
@@ -230,7 +232,7 @@ export function parseTable(values: unknown[][], config: SheetConfig, hash: strin
   const byStudentId = new Map<string, ParsedRow[]>()
   for (const row of [...rows, ...withoutId]) {
     if (!row.values || row.studentIdIssue || row.values.studentId === '') continue
-    const key = row.values.studentId.toLowerCase()
+    const key = studentIdKey(row.values.studentId)
     byStudentId.set(key, [...(byStudentId.get(key) ?? []), row])
   }
   for (const group of byStudentId.values()) {
@@ -353,7 +355,7 @@ export function planStudentIds(
   for (;;) {
     const holders = new Map<string, string[]>()
     for (const id of new Set([...current.keys(), ...plan.keys()])) {
-      const value = (plan.get(id) ?? now(id)).studentId.toLowerCase()
+      const value = studentIdKey((plan.get(id) ?? now(id)).studentId)
       if (value) holders.set(value, [...(holders.get(value) ?? []), id])
     }
     let reverted = false
@@ -362,7 +364,7 @@ export function planStudentIds(
       for (const id of ids) {
         const planned = plan.get(id)
         const before = now(id)
-        if (!planned || planned.studentId.toLowerCase() === before.studentId.toLowerCase()) continue
+        if (!planned || studentIdKey(planned.studentId) === studentIdKey(before.studentId)) continue
         plan.set(id, { ...before, issue: 'taken', claimed: planned.studentId.slice(0, 64) })
         reverted = true
       }

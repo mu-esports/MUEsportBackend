@@ -1,4 +1,5 @@
 import { api } from '../api/client'
+import { memberPasswordChallenge, passwordMaterial } from '../auth/member-password'
 
 /** ข้อมูลของสมาชิกที่เข้าสู่ระบบอยู่: มาจาก endpoint ที่ผูกกับ session ของตัวเองเท่านั้น ไม่มีการดึงรายชื่อสมาชิกคนอื่นมากรองที่หน้าเว็บ */
 export interface MemberSelf {
@@ -33,7 +34,12 @@ export const memberApi = {
   me: async () => (await api<{ member: MemberSelf }>('/api/member/me')).member,
   updateContact: async (contact: string, expectedVersion: number) =>
     (await api<{ member: MemberSelf }>('/api/member/me', { method: 'PATCH', body: { contact, expectedVersion } })).member,
-  changePassword: (currentPassword: string, newPassword: string) =>
-    api<{ ok: true; csrfToken: string }>('/api/member/password', { method: 'POST', body: { currentPassword, newPassword } }),
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    const session = await api<{ member: { studentId: string } }>('/api/session')
+    const challenge = await memberPasswordChallenge(session.member.studentId)
+    const currentProof = await passwordMaterial(currentPassword, challenge)
+    const passwordProof = await passwordMaterial(newPassword)
+    return api<{ ok: true; csrfToken: string }>('/api/member/password', { method: 'POST', body: { currentPassword, newPassword, currentProof, passwordProof } })
+  },
   events: async () => (await api<{ events: MemberEvent[] }>('/api/member/events')).events,
 }

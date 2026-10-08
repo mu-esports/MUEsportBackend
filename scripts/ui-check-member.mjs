@@ -15,6 +15,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { chromium } from 'playwright-core'
 import { prepareLocalDatabase } from './local-fixtures.mjs'
+import { loginWithPassword, makePasswordMaterial } from './member-password-client.mjs'
 import { LONG_NAME, mockLibrary } from './ui-library-mock.mjs'
 
 const PORT = Number(process.env.UI_LIVE_PORT ?? 5183)
@@ -129,8 +130,11 @@ try {
     if (fullPage) await page.evaluate(() => window.scrollTo(0, 0))
     return page.screenshot({ path: `${OUT}/${name}.png`, fullPage })
   }
-  const apiAs = (page, path, options = {}) =>
-    page.evaluate(
+  const apiAs = async (page, path, options = {}) => {
+    if (/\/account\/password$/.test(path) && options.body?.password) {
+      options = { ...options, body: { ...options.body, passwordProof: makePasswordMaterial(options.body.password) } }
+    }
+    return page.evaluate(
       async ({ path, options }) => {
         const session = await (await fetch('/api/session')).json()
         const res = await fetch(path, {
@@ -149,6 +153,7 @@ try {
       },
       { path, options },
     )
+  }
 
   /** ความสูงของส่วนที่กดได้ทุกตัวที่มองเห็นในหน้า (พื้นที่กดของการ์ดไฟล์คือทั้งการ์ด) */
   const tapHeights = (page, scope = 'body') =>
@@ -220,7 +225,7 @@ try {
   /** หน้าใหม่ที่เข้าสู่ระบบเป็นสมาชิกผ่านเส้นทางจริงของ Worker (ไม่ใช้ session ที่สร้างไว้ล่วงหน้า) */
   const memberPage = async (width, height, studentId, password, options = {}) => {
     const page = await newPage(width, height, null, 0, options)
-    const res = await page.request.post(`${BASE}/auth/member/login`, { data: { studentId, password }, headers: { Origin: BASE } })
+    const res = await loginWithPassword(page.request, BASE, studentId, password)
     if (res.status() !== 200) throw new Error(`เข้าสู่ระบบสมาชิก ${studentId} ไม่สำเร็จ: ${res.status()} ${await res.text()}`)
     return page
   }
@@ -344,6 +349,8 @@ try {
     await p.locator('#login-student-id').waitFor()
     // ส่วนทีมงานรู้ผลจาก server ทีหลังฟอร์มสมาชิก: วัดหน้าเมื่อส่วนนั้นแสดงผลสุดท้ายแล้ว (ปุ่ม Google หรือข้อความว่ายังไม่ได้ตั้งค่า)
     await p.locator('.login-staff .auth-inline').waitFor({ state: 'detached' })
+    check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h}: ตัวอย่างรหัสสมมติและคำอธิบายรองรับ u หรือตัวเลขล้วน`,
+      (await p.locator('#login-student-id').getAttribute('placeholder')) === 'u6501234 หรือ 6501234' && (await p.locator('#login-student-id-hint').innerText()).includes('u6501234'))
     const small = await smallTargets(p)
     check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h}: ไม่ล้นจอ และทุกส่วนที่กดได้สูง ≥44px`, (await noOverflow(p)) && small.length === 0, JSON.stringify(small))
     const google = p.getByRole('link', { name: 'เข้าสู่ระบบด้วย Google' })
@@ -360,9 +367,13 @@ try {
   // ================= 2. เข้าสู่ระบบครั้งแรก: บังคับเปลี่ยนรหัสผ่านชั่วคราว =================
   {
     const p = await newPage(1440, 900)
-    await memberLogin(p, '6512345', TEMP)
+    const loginRequest = p.waitForRequest(r => r.url().endsWith('/auth/member/login'))
+    await memberLogin(p, 'u6512345', TEMP)
     await p.waitForURL(`${BASE}/member/password`)
     await p.getByRole('heading', { name: 'ตั้งรหัสผ่านใหม่', level: 1 }).waitFor()
+    const loginBody = (await loginRequest).postDataJSON()
+    check('[จริง] เข้าด้วย u และตัวเลขล้วนเป็นบัญชีเดียวกัน; หน้าเว็บส่ง proof จาก Web Worker โดยไม่ส่งรหัสผ่านในคำขอ login',
+      loginBody.studentId === 'u6512345' && !('password' in loginBody) && loginBody.passwordProof.m === 19456 && (await apiAs(p, '/api/session')).body?.member?.id === actors.first.id)
     check('[จริง] เข้าสู่ระบบด้วยรหัสชั่วคราว (Argon2id จริง): ถูกพาไปหน้าตั้งรหัสผ่านใหม่ พร้อมชื่อเล่นและรหัสนักศึกษาให้ตรวจ',
       (await p.locator('.login-welcome').innerText()).includes('ภูมิ') && (await p.locator('.login-welcome').innerText()).includes('6512345'))
     check('[จริง] หน้าตั้งรหัสผ่านใหม่ไม่มีเมนูไปหน้าอื่น มีเพียงฟอร์มและปุ่มออกจากระบบ',

@@ -10,6 +10,8 @@ export interface AppEnv {
   GOOGLE_CLIENT_SECRET?: string
   /** กุญแจ AES-256-GCM แบบ base64 ยาว 32 ไบต์ ใช้เข้ารหัส token ของ Google ใน D1 (ค่าลับ) */
   TOKEN_ENCRYPTION_KEY?: string
+  /** Production always uses client work + server verifier. Only the isolated old test suite may use server-test. */
+  PASSWORD_HASH_MODE?: 'client' | 'server-test'
   /** API key ของเบราว์เซอร์สำหรับ Google Picker (ไม่ลับ แต่ต้องจำกัด HTTP referrer และจำกัดให้ใช้ได้เฉพาะ Picker API) */
   GOOGLE_PICKER_API_KEY?: string
   /** เลขโครงการ Google Cloud (project number) ใช้เป็น App ID ของ Picker เพื่อให้ไฟล์ที่เลือกเปิดสิทธิ์ drive.file ให้แอปนี้ */

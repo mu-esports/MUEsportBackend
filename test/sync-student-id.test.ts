@@ -78,6 +78,18 @@ describe('ตัดสินรหัสนักศึกษาจากสิ�
 })
 
 describe('รหัสนักศึกษาจากคอลัมน์ในชีต', () => {
+  it('ชีตใช้ u/U หรือตัวเลขล้วน: เข้าบัญชีเดียวกัน และตรวจแถวซ้ำข้ามสองรูปแบบ', async () => {
+    await linkSheet([row('id-a', 'ตัวอย่าง ก', 'U0065002'), row('id-b', 'ตัวอย่าง ข', 'u6501234'), row('id-c', 'ตัวอย่าง ค', '6501234')])
+    expect((await member('id-a')).studentId).toBe('0065002')
+    expect((await setPassword('id-a', 'u0065002')).status).toBe(201)
+    const res = await login('U0065002')
+    expect(res.status).toBe(200)
+    expect((await sessionOf(res)).id).toBe('id-a')
+    for (const id of ['id-b', 'id-c']) {
+      expect((await member(id)).studentIdIssue.code).toBe('duplicate')
+      expect((await setPassword(id, '6501234')).status).toBe(409)
+    }
+  })
   it('อ่านเป็นข้อความตามที่ชีตแสดง คงเลขศูนย์นำหน้า และเรียงแถวใหม่ไม่ทำให้บัญชีสลับคน', async () => {
     const sheet = await linkSheet([row('id-a', 'อารี ทดสอบ', '0012345'), row('id-b', 'บุญมี ทดสอบ', 'B6500002'), row('id-c', 'ชาตรี ทดสอบ', '')])
     expect((await member('id-a')).studentId).toBe('0012345')

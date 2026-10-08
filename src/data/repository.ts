@@ -1,6 +1,7 @@
 import { api } from '../api/client'
 import { STORAGE_KEY } from '../config'
 import { today } from '../lib/datetime'
+import { normalizeStudentId, studentIdKey } from '../lib/student-id'
 import { IS_DEMO } from '../mode'
 import { AppError } from './errors'
 import { createSeedData } from './seed'
@@ -89,7 +90,7 @@ function replaceItem<T extends { id: string; version: number }>(items: T[], id: 
 /** รหัสนักศึกษาต้องไม่ซ้ำกับสมาชิกคนอื่น (เหมือนที่ระบบกลางตรวจ) */
 function assertStudentIdFree(members: Member[], studentId: string, exceptId = '') {
   if (!studentId) return
-  const other = members.find((m) => m.id !== exceptId && m.studentId.toLowerCase() === studentId.toLowerCase())
+  const other = members.find((m) => m.id !== exceptId && studentIdKey(m.studentId) === studentIdKey(studentId))
   if (other) throw new AppError('student_id_taken', 409, `รหัสนักศึกษานี้มีสมาชิกคนอื่นใช้อยู่แล้ว (${other.name}) ยังไม่ได้บันทึก ตรวจรหัสให้ถูกต้องก่อนบันทึกอีกครั้ง`, { field: 'studentId' })
 }
 
@@ -99,14 +100,14 @@ const demoRepository: DataRepository = {
   async createMember(input) {
     const data = readDemo()
     assertStudentIdFree(data.members, input.studentId)
-    const member: Member = { ...input, id: crypto.randomUUID(), addedAt: today(), version: 1 }
+    const member: Member = { ...input, studentId: normalizeStudentId(input.studentId), id: crypto.randomUUID(), addedAt: today(), version: 1 }
     writeDemo({ ...data, members: [...data.members, member] })
     return member
   },
   async updateMember(id, input, expectedVersion) {
     const data = readDemo()
     assertStudentIdFree(data.members, input.studentId, id)
-    const [members, member] = replaceItem(data.members, id, expectedVersion, (m) => ({ ...m, ...input }))
+    const [members, member] = replaceItem(data.members, id, expectedVersion, (m) => ({ ...m, ...input, studentId: normalizeStudentId(input.studentId) }))
     writeDemo({ ...data, members })
     return member
   },

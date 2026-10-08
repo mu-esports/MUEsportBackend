@@ -6,9 +6,11 @@ import { audit, clearSessionCookie, deleteSession, newMemberSession, requireMemb
 import { updateMemberRow } from './sheets'
 import type { SheetConfig } from './sheets'
 import { loadResource } from './sync'
-import { clearAfterSuccess, clearLoginId, reserveAttempt } from './throttle'
+import { clearAfterSuccess, clearLoginId, reserveAttempt, reserveChallenge } from './throttle'
+import { dummyChallenge, readMaterial, storedPassword, storeMaterial, verifyMaterial, wrapLegacy } from './password-relief'
 import type { Reservation } from './throttle'
 import { bangkokToday, expectedVersion, invalid, text } from './validation'
+import { normalizeStudentId, studentIdAliases, studentIdKey } from '../src/lib/student-id'
 
 /**
  * บัญชีเข้าสู่ระบบของสมาชิก (รหัสนักศึกษา + รหัสผ่าน)
@@ -17,7 +19,7 @@ import { bangkokToday, expectedVersion, invalid, text } from './validation'
  *   ผู้ดูแลต้องยืนยันก่อน และระหว่างนั้นสมาชิกยังเข้าสู่ระบบด้วยรหัสเดิม
  * - เปิดบัญชี ตั้ง/รีเซ็ตรหัสผ่าน ปิดบัญชี และยืนยันการเปลี่ยนรหัสเข้าสู่ระบบ ทำได้เฉพาะผู้ดูแล (ทีมงานที่เข้าสู่ระบบด้วย Google และมีสิทธิ์ admin)
  *   บทบาทในทะเบียนสมาชิกไม่เกี่ยวข้อง
- * - รหัสผ่านอยู่ใน D1 เป็นผลของ Argon2id เท่านั้น ไม่มีคำตอบใดของ API ส่ง hash หรือรหัสผ่านกลับ และไม่มีการเขียนลง Google
+ * - D1 เก็บ HMAC ของผล Argon2id ที่คำนวณฝั่ง client ไม่มี API ส่ง verifier/รหัสผ่านกลับ และไม่มีการเขียนลง Google
  */
 export interface MemberAccountRow {
   id: string
@@ -63,7 +65,7 @@ export function accountSummary(row: MemberAccountRow) {
     /** รหัสนักศึกษาที่บัญชีใช้เข้าสู่ระบบ */
     loginId: row.account_login_id,
     /** รหัสนักศึกษาในทะเบียนไม่ตรงกับรหัสที่บัญชีใช้อยู่: รอผู้ดูแลยืนยันก่อนเปลี่ยน */
-    loginMismatch: row.account_login_id !== null && row.account_login_id.toLowerCase() !== row.student_id.toLowerCase(),
+    loginMismatch: row.account_login_id !== null && studentIdKey(row.account_login_id) !== studentIdKey(row.student_id),
     passwordSetAt: row.account_password_set_at,
     lastLoginAt: row.account_last_login_at,
     blocked,
@@ -103,7 +105,8 @@ async function setPassword(ctx: Ctx, memberId: string): Promise<Response> {
   if (member.status !== 'active') {
     throw new HttpError(409, 'member_suspended', 'สมาชิกนี้ถูกพักการใช้งาน จึงยังเปิดบัญชีหรือตั้งรหัสผ่านไม่ได้ เปิดใช้งานสมาชิกก่อน')
   }
-  const loginId = member.account_login_id ?? member.student_id
+  const loginId = member.account_login_id ?? normalizeStudentId(member.student_id)
+  const aliases = studentIdAliases(loginId)
   if (!member.account_login_id) {
     if (member.student_id_issue) {
       throw new HttpError(409, 'student_id_conflict', 'รหัสนักศึกษาของสมาชิกนี้ในชีตซ้ำกับคนอื่นหรือผิดรูปแบบ จึงยังเปิดบัญชีไม่ได้ แก้รหัสในชีตให้ถูกต้องและไม่ซ้ำก่อน')
@@ -113,32 +116,36 @@ async function setPassword(ctx: Ctx, memberId: string): Promise<Response> {
     }
   }
   // ผู้ดูแลต้องยืนยันรหัสนักศึกษาที่เห็นในกล่องตั้งรหัส: ถ้าเปลี่ยนไประหว่างนั้น จะไม่ตั้งรหัสให้ตัวตนที่ไม่ได้ตรวจ
-  if (typeof body.studentId !== 'string' || body.studentId.trim().toLowerCase() !== loginId.toLowerCase()) {
+  if (typeof body.studentId !== 'string' || studentIdKey(body.studentId) !== studentIdKey(loginId)) {
     throw new HttpError(409, 'student_id_changed', 'รหัสนักศึกษาของสมาชิกนี้ไม่ตรงกับที่แสดงในกล่องนี้แล้ว ยังไม่ได้ตั้งรหัสผ่าน ปิดกล่องนี้แล้วเปิดใหม่เพื่อตรวจข้อมูลล่าสุด')
   }
   const password = newPassword(body, 'password', 'รหัสผ่านชั่วคราว', [loginId, member.student_id])
 
-  if (!member.account_login_id) {
-    const holder = await ctx.env.DB.prepare('SELECT m.name FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.login_id = ?').bind(loginId).first<{ name: string }>()
+  {
+    const holder = await ctx.env.DB.prepare('SELECT m.name FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.login_id IN (?, ?) AND a.member_id <> ?').bind(...aliases, memberId).first<{ name: string }>()
     if (holder) {
       throw new HttpError(409, 'login_id_taken', `รหัสนักศึกษานี้ยังเป็นรหัสเข้าสู่ระบบของบัญชีสมาชิกอีกคน (${holder.name}) จึงเปิดบัญชีไม่ได้ ยืนยันการเปลี่ยนรหัสเข้าสู่ระบบหรือปิดบัญชีของสมาชิกคนนั้นก่อน`)
     }
   }
 
-  const hash = hashPassword(password)
+  const proof = readMaterial(body.passwordProof, true)
+  if (!proof && ctx.env.PASSWORD_HASH_MODE !== 'server-test') throw invalid('เตรียมรหัสผ่านไม่สำเร็จ กรุณาปิดกล่องแล้วลองใหม่', 'password')
+  const hash = proof ? await storeMaterial(ctx.env, memberId, proof) : hashPassword(password)
   const now = nowIso()
   const action = !member.account_login_id ? 'member_account.opened' : member.account_status === 'disabled' ? 'member_account.reopened' : 'member_account.password_reset'
   try {
-    await ctx.env.DB.batch([
+    const results = await ctx.env.DB.batch([
       ctx.env.DB.prepare(
         `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)
+         SELECT ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM member_accounts WHERE login_id IN (?, ?) AND member_id <> ?)
          ON CONFLICT (member_id) DO UPDATE SET password_hash = excluded.password_hash, status = 'active', must_change_password = 1,
            password_set_at = excluded.password_set_at, password_set_by = excluded.password_set_by, disabled_at = NULL, updated_at = excluded.updated_at`,
-      ).bind(memberId, loginId, hash, now, session.user.id, session.user.id, now, now),
+      ).bind(memberId, loginId, hash, now, session.user.id, session.user.id, now, now, ...aliases, memberId),
       revokeSessions(ctx.env, memberId),
       await clearLoginId(ctx.env, loginId),
     ])
+    if (results[0].meta.changes !== 1) throw new HttpError(409, 'login_id_taken', 'รหัสนักศึกษานี้เพิ่งถูกใช้เปิดบัญชีของสมาชิกอีกคน ยังไม่ได้เปิดบัญชีนี้ โหลดรายการใหม่เพื่อตรวจ')
   } catch (error) {
     if (error instanceof Error && /UNIQUE constraint failed/i.test(error.message)) {
       throw new HttpError(409, 'login_id_taken', 'รหัสนักศึกษานี้เพิ่งถูกใช้เปิดบัญชีของสมาชิกอีกคน ยังไม่ได้เปิดบัญชีนี้ โหลดรายการใหม่เพื่อตรวจ')
@@ -179,16 +186,19 @@ async function confirmLoginId(ctx: Ctx, memberId: string): Promise<Response> {
     throw new HttpError(409, 'student_id_conflict', 'รหัสนักศึกษาในทะเบียนของสมาชิกนี้ยังว่าง ซ้ำ หรือผิดรูปแบบ จึงเปลี่ยนรหัสเข้าสู่ระบบไม่ได้ แก้รหัสในทะเบียนให้ถูกต้องก่อน')
   }
   // ผู้ดูแลยืนยันค่าที่เห็นบนหน้าจอ: ถ้าทะเบียนเปลี่ยนอีกครั้งระหว่างนั้นจะไม่ใช้ค่าที่ยังไม่ได้ตรวจ
-  if (typeof body.studentId !== 'string' || body.studentId.trim() !== member.student_id) {
+  if (typeof body.studentId !== 'string' || studentIdKey(body.studentId) !== studentIdKey(member.student_id)) {
     throw new HttpError(409, 'student_id_changed', 'รหัสนักศึกษาในทะเบียนไม่ตรงกับที่แสดงแล้ว ยังไม่ได้เปลี่ยนรหัสเข้าสู่ระบบ โหลดรายการใหม่เพื่อตรวจ')
   }
-  if (member.account_login_id === member.student_id) return json({ account: accountSummary(member) })
+  if (studentIdKey(member.account_login_id) === studentIdKey(member.student_id)) return json({ account: accountSummary(member) })
+  const nextLoginId = normalizeStudentId(member.student_id)
+  const aliases = studentIdAliases(nextLoginId)
   try {
-    await ctx.env.DB.batch([
-      ctx.env.DB.prepare('UPDATE member_accounts SET login_id = ?, updated_at = ? WHERE member_id = ?').bind(member.student_id, nowIso(), memberId),
+    const results = await ctx.env.DB.batch([
+      ctx.env.DB.prepare('UPDATE member_accounts SET login_id = ?, updated_at = ? WHERE member_id = ? AND NOT EXISTS (SELECT 1 FROM member_accounts WHERE login_id IN (?, ?) AND member_id <> ?)').bind(nextLoginId, nowIso(), memberId, ...aliases, memberId),
       // สมาชิกต้องเข้าสู่ระบบใหม่ด้วยรหัสนักศึกษาใหม่
       revokeSessions(ctx.env, memberId),
     ])
+    if (results[0].meta.changes !== 1) throw new HttpError(409, 'login_id_taken', 'รหัสนักศึกษานี้ยังเป็นรหัสเข้าสู่ระบบของบัญชีสมาชิกอีกคน ยังไม่ได้เปลี่ยน ตรวจบัญชีของสมาชิกคนนั้นก่อน')
   } catch (error) {
     if (error instanceof Error && /UNIQUE constraint failed/i.test(error.message)) {
       throw new HttpError(409, 'login_id_taken', 'รหัสนักศึกษานี้ยังเป็นรหัสเข้าสู่ระบบของบัญชีสมาชิกอีกคน ยังไม่ได้เปลี่ยน ตรวจบัญชีของสมาชิกคนนั้นก่อน')
@@ -211,6 +221,28 @@ export async function handleMemberAccount(ctx: Ctx, memberId: string, action: st
 
 const invalidCredentials = () =>
   new HttpError(401, 'invalid_credentials', 'รหัสนักศึกษาหรือรหัสผ่านไม่ถูกต้อง ถ้าลืมรหัสผ่านให้ติดต่อทีมงานเพื่อตั้งรหัสใหม่')
+
+/** Public metadata contains a salt and fixed work parameters, never a verifier or an existence flag. */
+export async function memberChallenge(ctx: Ctx): Promise<Response> {
+  if (ctx.request.headers.get('Origin') !== ctx.url.origin) throw new HttpError(403, 'bad_origin', 'คำขอนี้ไม่ได้มาจากหน้าเว็บของระบบ')
+  const body = await readJson(ctx.request, 512)
+  const studentId = typeof body.studentId === 'string' ? body.studentId.trim() : ''
+  if (!studentId || studentId.length > 64) throw invalid('กรอกรหัสนักศึกษาให้ถูกต้อง', 'studentId')
+  const allowed = await reserveChallenge(ctx.env, ctx.request)
+  if (!allowed.allowed) throw await tooMany(ctx.env, allowed)
+  const { results } = await ctx.env.DB.prepare('SELECT member_id, password_hash FROM member_accounts WHERE login_id IN (?, ?) LIMIT 2')
+    .bind(...studentIdAliases(studentId)).all<{ member_id: string; password_hash: string }>()
+  if (results.length === 1) {
+    const row = results[0]
+    const parsed = storedPassword(row.password_hash)
+    if (parsed) {
+      // Wrap old local accounts before exposing their salt; no CPU-heavy derivation on Workers.
+      if (parsed.legacy) await wrapLegacy(ctx.env, row.member_id, row.password_hash)
+      return json(parsed.challenge)
+    }
+  }
+  return json(await dummyChallenge(ctx.env, studentId))
+}
 
 async function tooMany(env: AppEnv, reserved: Extract<Reservation, { allowed: false }>): Promise<HttpError> {
   // บันทึกว่ามีการพักเกิดขึ้น โดยไม่ระบุรหัสนักศึกษาหรือ IP
@@ -242,33 +274,40 @@ export async function memberLogin(ctx: Ctx): Promise<Response> {
   const body = await readJson(request, 4096)
   const studentId = typeof body.studentId === 'string' ? body.studentId.trim() : ''
   const password = typeof body.password === 'string' ? body.password : ''
+  const proof = readMaterial(body.passwordProof)
+  const clientMode = ctx.env.PASSWORD_HASH_MODE !== 'server-test'
   if (!studentId) throw invalid('กรอกรหัสนักศึกษา', 'studentId')
-  if (!password) throw invalid('กรอกรหัสผ่าน', 'password')
+  if (!proof && !password) throw invalid('กรอกรหัสผ่าน', 'password')
+  if (!proof && clientMode) throw invalid('เตรียมการเข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่', 'password')
   // ค่าที่ยาวเกินขอบเขตไม่มีทางตรงกับบัญชีใด: ตอบเหมือนรหัสผิดโดยไม่เสียแรงคำนวณ
   if (studentId.length > 64 || passwordLength(password) > MAX_PASSWORD_LENGTH) throw invalidCredentials()
 
   const reserved = await reserveAttempt(env, studentId, request)
   if (!reserved.allowed) throw await tooMany(env, reserved)
 
-  const row = await env.DB.prepare(
+  const { results: matches } = await env.DB.prepare(
     `SELECT a.member_id, a.login_id, a.password_hash, a.status, a.must_change_password, m.status AS member_status
-       FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.login_id = ?`,
+       FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.login_id IN (?, ?) LIMIT 2`,
   )
-    .bind(studentId)
-    .first<LoginRow>()
-  if (!row) {
-    burnVerification(password)
+    .bind(...studentIdAliases(studentId))
+    .all<LoginRow>()
+  // ข้อมูลเก่าที่มีทั้งสองรูปแบบอยู่คนละบัญชี: ไม่เลือกบัญชีจากรหัสผ่านหรือย้ายตัวตนเอง
+  if (matches.length !== 1) {
+    if (proof) await storeMaterial(env, 'unknown-account', proof)
+    else burnVerification(password)
     throw invalidCredentials()
   }
-  const checked = verifyPassword(password, row.password_hash)
+  const row = matches[0]
+  const checked = proof ? { ok: await verifyMaterial(env, row.member_id, row.password_hash, proof), needsRehash: false } : verifyPassword(password, row.password_hash)
   if (!checked.ok) throw invalidCredentials()
   // บอกสถานะบัญชีเฉพาะกับผู้ที่พิสูจน์แล้วว่ารู้รหัสผ่าน
   if (row.status !== 'active' || row.member_status !== 'active') {
     throw new HttpError(403, 'account_disabled', 'บัญชีนี้ถูกปิดหรือสมาชิกถูกพักการใช้งาน จึงเข้าสู่ระบบไม่ได้ ติดต่อทีมงาน')
   }
+  if (proof && storedPassword(row.password_hash)?.legacy) row.password_hash = await wrapLegacy(env, row.member_id, row.password_hash)
 
   const now = nowIso()
-  const fresh = await newMemberSession(env, row.member_id, ctx.url)
+  const fresh = await newMemberSession(env, row.member_id, ctx.url, row.password_hash)
   const statements = [
     fresh.insert,
     env.DB.prepare('UPDATE member_accounts SET last_login_at = ?, updated_at = ? WHERE member_id = ?').bind(now, now, row.member_id),
@@ -276,7 +315,13 @@ export async function memberLogin(ctx: Ctx): Promise<Response> {
   ]
   // ค่า Argon2id ที่เก็บไว้อ่อนกว่าค่าปัจจุบัน: คำนวณใหม่ด้วยค่าปัจจุบันตอนที่รู้รหัสผ่านจริง
   if (checked.needsRehash) statements.push(env.DB.prepare('UPDATE member_accounts SET password_hash = ? WHERE member_id = ?').bind(hashPassword(password), row.member_id))
-  await env.DB.batch(statements)
+  const legacyWork = storedPassword(row.password_hash)?.challenge
+  if (proof && legacyWork && (legacyWork.m < 19456 || legacyWork.t < 2 || legacyWork.p !== 1)) {
+    row.must_change_password = 1
+    statements.push(env.DB.prepare('UPDATE member_accounts SET must_change_password = 1 WHERE member_id = ? AND password_hash = ?').bind(row.member_id, row.password_hash))
+  }
+  const written = await env.DB.batch(statements)
+  if (written[0].meta.changes !== 1) throw invalidCredentials()
   if (ctx.session) await deleteSession(env, ctx.session)
   await clearAfterSuccess(env, studentId, request)
   return json({ ok: true, mustChangePassword: row.must_change_password === 1 }, 200, { 'Set-Cookie': fresh.cookie })
@@ -389,18 +434,23 @@ async function changePassword(ctx: Ctx): Promise<Response> {
   // การเดารหัสผ่านปัจจุบันผ่าน session ที่ถูกขโมยถูกจำกัดด้วยตัวนับเดียวกับการเข้าสู่ระบบ
   const reserved = await reserveAttempt(ctx.env, account.login_id, ctx.request)
   if (!reserved.allowed) throw await tooMany(ctx.env, reserved)
-  if (passwordLength(current) > MAX_PASSWORD_LENGTH || !verifyPassword(current, account.password_hash).ok) {
+  const currentProof = readMaterial(body.currentProof)
+  const nextProof = readMaterial(body.passwordProof, true)
+  if ((!currentProof || !nextProof) && ctx.env.PASSWORD_HASH_MODE !== 'server-test') throw invalid('เตรียมรหัสผ่านไม่สำเร็จ กรุณาลองใหม่', 'newPassword')
+  const correct = currentProof ? await verifyMaterial(ctx.env, id, account.password_hash, currentProof) : verifyPassword(current, account.password_hash).ok
+  if (passwordLength(current) > MAX_PASSWORD_LENGTH || !correct) {
     throw new HttpError(403, 'wrong_password', 'รหัสผ่านปัจจุบันไม่ถูกต้อง ยังไม่ได้เปลี่ยนรหัสผ่าน', { field: 'currentPassword' })
   }
 
-  const hash = hashPassword(next)
+  const hash = nextProof ? await storeMaterial(ctx.env, id, nextProof) : hashPassword(next)
   const now = nowIso()
-  const fresh = await newMemberSession(ctx.env, id, ctx.url)
-  await ctx.env.DB.batch([
-    ctx.env.DB.prepare('UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ? WHERE member_id = ?').bind(hash, now, now, id),
-    revokeSessions(ctx.env, id),
+  const fresh = await newMemberSession(ctx.env, id, ctx.url, hash)
+  const changed = await ctx.env.DB.batch([
+    ctx.env.DB.prepare("UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ? WHERE member_id = ? AND password_hash = ? AND status = 'active'").bind(hash, now, now, id, account.password_hash),
+    ctx.env.DB.prepare('DELETE FROM member_sessions WHERE member_id = ? AND EXISTS (SELECT 1 FROM member_accounts WHERE member_id = ? AND password_hash = ?)').bind(id, id, hash),
     fresh.insert,
   ])
+  if (changed[0].meta.changes !== 1 || changed[2].meta.changes !== 1) throw new HttpError(409, 'password_changed', 'บัญชีมีการเปลี่ยนแปลงระหว่างบันทึก กรุณาเข้าสู่ระบบใหม่')
   await clearAfterSuccess(ctx.env, account.login_id, ctx.request)
   await audit(ctx.env, null, 'member_account.password_changed', id)
   return json({ ok: true, csrfToken: fresh.csrfToken }, 200, { 'Set-Cookie': fresh.cookie })

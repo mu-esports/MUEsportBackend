@@ -60,6 +60,36 @@ describe('การเก็บรหัสผ่าน', () => {
 })
 
 describe('เข้าสู่ระบบด้วยรหัสนักศึกษาและรหัสผ่าน', () => {
+  it('ตัวเลขล้วน u/U และช่องว่างหัวท้ายเข้าบัญชีเดียวกัน โดยคงศูนย์นำหน้า', async () => {
+    for (const stored of ['6501234', 'u0065002']) {
+      const member = await account(stored)
+      const digits = stored.replace(/^u/i, '')
+      for (const typed of [digits, `u${digits}`, ` U${digits} `]) {
+        const res = await login(typed, MEMBER_PASSWORD)
+        expect(res.status, typed).toBe(200)
+        expect((await actorFrom(res)).id).toBe(member.id)
+      }
+    }
+  })
+
+  it('ข้อมูลเก่าที่เก็บสองรูปแบบเป็นคนละบัญชี: ไม่เลือกบัญชีจากรหัสผ่านและไม่ออก session', async () => {
+    await account('6501234')
+    const other = await seedMember({ studentId: 'u6501234' })
+    await seedAccount(other.id, { loginId: 'u6501234' })
+    for (const typed of ['6501234', 'u6501234']) {
+      expect((await login(typed, MEMBER_PASSWORD)).status).toBe(401)
+    }
+    expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM member_sessions').first<{n:number}>())?.n).toBe(0)
+  })
+
+  it('สลับ u/U และตัวเลขไม่ทำให้ข้ามโควตาการลองรหัสผ่าน', async () => {
+    await account('6501234')
+    for (const typed of ['6501234', 'u6501234', 'U6501234', '6501234', 'u6501234']) {
+      expect((await login(typed, 'Wrong-Password-1')).status).toBe(401)
+    }
+    expect((await login('6501234', MEMBER_PASSWORD)).status).toBe(429)
+    expect((await login('u6501234', MEMBER_PASSWORD)).status).toBe(429)
+  })
   it('สำเร็จ: ได้ cookie แบบ HttpOnly/SameSite/Secure และ session เป็นของสมาชิกคนนั้น', async () => {
     const member = await account('0012345', { name: 'สมหญิง ทดสอบ' })
     const res = await login('0012345', MEMBER_PASSWORD)

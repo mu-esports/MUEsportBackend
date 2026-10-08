@@ -8,6 +8,7 @@ import { appendMember, updateMemberRow } from './sheets'
 import type { SheetConfig } from './sheets'
 import { loadResource } from './sync'
 import type { SyncResource } from './sync'
+import { studentIdAliases } from '../src/lib/student-id'
 import {
   bangkokToday, expectedVersion, findIdempotent, hashPayload, idempotencyInsert, idempotencyKey, oneOf, studentIdField, text, versionConflict,
 } from './validation'
@@ -73,7 +74,7 @@ const isStudentIdConflict = (error: unknown) => error instanceof Error && /UNIQU
 /** รหัสนักศึกษาต้องไม่ซ้ำกับสมาชิกคนอื่น (ไม่สนตัวพิมพ์เล็กใหญ่) ตรวจก่อนเขียนทุกครั้ง และฐานข้อมูลมี unique index กันซ้ำอีกชั้น */
 async function ensureStudentIdFree(env: AppEnv, studentId: string, exceptId = ''): Promise<void> {
   if (!studentId) return
-  const other = await env.DB.prepare('SELECT name FROM members WHERE student_id = ? COLLATE NOCASE AND id <> ? LIMIT 1').bind(studentId, exceptId).first<{ name: string }>()
+  const other = await env.DB.prepare('SELECT name FROM members WHERE student_id COLLATE NOCASE IN (?, ?) AND id <> ? LIMIT 1').bind(...studentIdAliases(studentId), exceptId).first<{ name: string }>()
   if (other) throw studentIdTaken(other.name)
 }
 

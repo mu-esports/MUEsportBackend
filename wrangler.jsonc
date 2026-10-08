@@ -21,6 +21,7 @@
     "enabled": true
   },
   "vars": {
+    "PASSWORD_HASH_MODE": "client",
     "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
     "GOOGLE_CLIENT_ID": "",
     // Google Picker (เลือกไฟล์เดิมจากหน้าเว็บ): API key ของเบราว์เซอร์และเลขโครงการ Google Cloud ไม่ใช่ค่าลับ เว้นว่าง = ยังเลือกไฟล์เดิมไม่ได้ (ดู README)
@@ -39,6 +40,7 @@
     "staging": {
       "name": "mu-esport-staff-staging",
       "vars": {
+        "PASSWORD_HASH_MODE": "client",
         "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
         "GOOGLE_CLIENT_ID": "REPLACE_WITH_STAGING_GOOGLE_CLIENT_ID",
         "GOOGLE_PICKER_API_KEY": "",
@@ -62,6 +64,7 @@
     "production": {
       "name": "muesportbackend",
       "vars": {
+        "PASSWORD_HASH_MODE": "client",
         "CLUB_GOOGLE_EMAIL": "muesport2567@gmail.com",
         "GOOGLE_CLIENT_ID": "989576232237-3c083cakvsrl2ktrqqvacqsj2c000rgi.apps.googleusercontent.com",
         // ใส่ API key ของ Picker หลังสร้างใน Google Cloud (ดู README หัวข้อ Google Picker)

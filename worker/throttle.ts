@@ -1,5 +1,6 @@
 import { sha256Hex } from './crypto'
 import type { AppEnv } from './env'
+import { studentIdKey } from '../src/lib/student-id'
 
 /**
  * จำกัดการลองเข้าสู่ระบบของสมาชิกที่ server (ไม่อาศัยตัวนับในเบราว์เซอร์)
@@ -16,7 +17,7 @@ export const ID_ATTEMPTS = 5
 /** จำนวนครั้งที่ลองผิดได้ต่อ IP ในหนึ่งช่วงเวลา (สูงกว่า เพราะสมาชิกหลายคนอาจใช้เครือข่ายเดียวกัน) */
 export const IP_ATTEMPTS = 30
 
-export const idKey = async (loginId: string) => `id:${await sha256Hex(`login-id:${loginId.trim().toLowerCase()}`)}`
+export const idKey = async (loginId: string) => `id:${await sha256Hex(`login-id:${studentIdKey(loginId)}`)}`
 export const ipKey = async (request: Request) => `ip:${await sha256Hex(`login-ip:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`)}`
 
 interface Row {
@@ -58,6 +59,11 @@ export async function reserveAttempt(env: AppEnv, loginId: string, request: Requ
   const byIp = await reserveOne(env, await ipKey(request), IP_ATTEMPTS, now)
   if (!byIp.allowed) return byIp
   return reserveOne(env, await idKey(loginId), ID_ATTEMPTS, now)
+}
+
+/** Metadata is cheap but still bounded separately; requesting a seed does not spend a password attempt. */
+export async function reserveChallenge(env: AppEnv, request: Request): Promise<Reservation> {
+  return reserveOne(env, `challenge:${await ipKey(request)}`, 120, Date.now())
 }
 
 /** เข้าสู่ระบบสำเร็จ: ล้างตัวนับของรหัสนี้ และคืนสิทธิ์ที่จองไว้ของ IP (IP นับเฉพาะครั้งที่ไม่สำเร็จ) */

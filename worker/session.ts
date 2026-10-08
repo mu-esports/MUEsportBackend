@@ -24,13 +24,19 @@ export async function createSession(env: AppEnv, userId: string, url: URL): Prom
 }
 
 /** token ใหม่ของสมาชิก พร้อมคำสั่งบันทึกแถว session (ผู้เรียกรวมไว้ใน batch เดียวกับคำสั่งอื่นได้) */
-export async function newMemberSession(env: AppEnv, memberId: string, url: URL) {
+export async function newMemberSession(env: AppEnv, memberId: string, url: URL, expectedPasswordHash?: string) {
   const token = MEMBER_TOKEN_PREFIX + randomToken()
   const now = Date.now()
   return {
-    insert: env.DB.prepare('INSERT INTO member_sessions (token_hash, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(
-      await sha256Hex(token), memberId, new Date(now).toISOString(), new Date(now + SESSION_TTL_SECONDS * 1000).toISOString(),
-    ),
+    insert: expectedPasswordHash === undefined
+      ? env.DB.prepare('INSERT INTO member_sessions (token_hash, member_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(
+        await sha256Hex(token), memberId, new Date(now).toISOString(), new Date(now + SESSION_TTL_SECONDS * 1000).toISOString(),
+      )
+      : env.DB.prepare(`INSERT INTO member_sessions (token_hash, member_id, created_at, expires_at)
+          SELECT ?, a.member_id, ?, ? FROM member_accounts a JOIN members m ON m.id = a.member_id
+          WHERE a.member_id = ? AND a.password_hash = ? AND a.status = 'active' AND m.status = 'active'`).bind(
+        await sha256Hex(token), new Date(now).toISOString(), new Date(now + SESSION_TTL_SECONDS * 1000).toISOString(), memberId, expectedPasswordHash,
+      ),
     cookie: cookie(SESSION_COOKIE, token, { maxAge: SESSION_TTL_SECONDS, secure: isHttps(url) }),
     csrfToken: await csrfFor(token),
   }

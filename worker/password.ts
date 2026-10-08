@@ -1,7 +1,8 @@
 import { argon2id } from '@noble/hashes/argon2.js'
 
 /**
- * การเก็บรหัสผ่านของบัญชีสมาชิก
+ * Argon2id แบบเดิมสำหรับ compatibility และชุดตรวจที่แยกจาก production
+ * หน้าเว็บปัจจุบันคำนวณใน Web Worker และ server เก็บ verifier ผ่าน password-relief.ts
  * - Argon2id ตามค่าขั้นต่ำที่ OWASP Password Storage Cheat Sheet แนะนำ: หน่วยความจำ 19 MiB (m=19456) วน 2 รอบ (t=2) ขนาน 1 (p=1)
  * - salt สุ่ม 16 ไบต์ต่อรหัสผ่านหนึ่งครั้งที่ตั้ง ผลลัพธ์ 32 ไบต์
  * - เก็บเป็นสตริงรูปแบบ PHC ($argon2id$v=19$m=…,t=…,p=…$salt$hash) จึงมี algorithm และ parameters กำกับทุกแถว
@@ -9,7 +10,7 @@ import { argon2id } from '@noble/hashes/argon2.js'
  * - ใช้ @noble/hashes (JavaScript ล้วน ผ่านการตรวจสอบจากภายนอก) เพราะ Web Crypto ของ Workers ไม่มี Argon2/scrypt/bcrypt
  *
  * ต้นทุน: การคำนวณหนึ่งครั้งใช้ CPU ราว 0.14 วินาทีใน workerd บนเครื่องพัฒนา (ดู README หัวข้อบัญชีสมาชิก)
- * ซึ่งเกินโควตา CPU 10 ms ต่อคำขอของ Workers Free ห้ามลดค่า m/t เพื่อให้ผ่านโควตา ให้ดูทางเลือกใน README แทน
+ * ซึ่งเกินโควตา CPU 10 ms ต่อคำขอของ Workers Free จึงไม่เรียกเส้นทางนี้บน production
  */
 export const ARGON2_PARAMS = { m: 19456, t: 2, p: 1 } as const
 const SALT_BYTES = 16

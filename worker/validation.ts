@@ -2,6 +2,7 @@ import { sha256Hex } from './crypto'
 import { nowIso } from './env'
 import type { AppEnv } from './env'
 import { HttpError } from './http'
+import { normalizeStudentId } from '../src/lib/student-id'
 
 export const invalid = (message: string, field?: string) => new HttpError(422, 'validation_failed', message, field ? { field } : {})
 
@@ -20,7 +21,7 @@ export function text(body: Record<string, unknown>, field: string, label: string
 }
 
 /**
- * รหัสนักศึกษา: เก็บเป็นข้อความตามที่กรอก (คงเลขศูนย์นำหน้า) ไม่กำหนดความยาวตายตัว
+ * รหัสนักศึกษา: เก็บเป็นข้อความ (คงเลขศูนย์นำหน้า) ตัวเลขที่มี u/U นำหน้าเก็บเป็นตัวเลขล้วน
  * รับตัวเลข อักษรอังกฤษ และ - _ . ระหว่างตัวอักษร ยาว 1–32 ตัว ไม่มีช่องว่าง เทียบซ้ำโดยไม่สนตัวพิมพ์เล็กใหญ่
  */
 export const STUDENT_ID_MAX = 32
@@ -35,7 +36,7 @@ export function studentIdField(body: Record<string, unknown>, field = 'studentId
   if (typeof raw !== 'string') throw invalid('รหัสนักศึกษาไม่ถูกต้อง', field)
   const value = raw.trim()
   if (value && !isStudentId(value)) throw invalid(`รหัสนักศึกษา${STUDENT_ID_RULE}`, field)
-  return value
+  return normalizeStudentId(value)
 }
 
 export function oneOf<T extends string>(body: Record<string, unknown>, field: string, label: string, allowed: readonly T[]): T {

@@ -1,4 +1,5 @@
 import { api } from '../api/client'
+import { passwordMaterial } from '../auth/member-password'
 import type { MemberAccount } from './types'
 
 /** จัดการบัญชีเข้าสู่ระบบของสมาชิก (เฉพาะผู้ดูแล server ตรวจสิทธิ์ทุกคำขอ) รหัสผ่านถูกส่งไปตั้งเท่านั้น ไม่มีเส้นทางอ่านกลับ */
@@ -6,8 +7,8 @@ const path = (memberId: string, action: string) => `/api/members/${encodeURIComp
 
 export const accountsApi = {
   /** เปิดบัญชี รีเซ็ตรหัสผ่าน หรือเปิดบัญชีที่ปิดไว้อีกครั้ง studentId = รหัสที่ผู้ดูแลตรวจในกล่องตั้งรหัส */
-  setPassword: (memberId: string, studentId: string, password: string) =>
-    api<{ account: MemberAccount }>(path(memberId, 'password'), { method: 'POST', body: { studentId, password } }),
+  setPassword: async (memberId: string, studentId: string, password: string) =>
+    api<{ account: MemberAccount }>(path(memberId, 'password'), { method: 'POST', body: { studentId, password, passwordProof: await passwordMaterial(password) } }),
   disable: (memberId: string) => api<{ account: MemberAccount }>(path(memberId, 'disable'), { method: 'POST', body: {} }),
   /** ยืนยันให้บัญชีใช้รหัสนักศึกษาปัจจุบันในทะเบียนเป็นรหัสเข้าสู่ระบบ */
   confirmLoginId: (memberId: string, studentId: string) => api<{ account: MemberAccount }>(path(memberId, 'login-id'), { method: 'POST', body: { studentId } }),

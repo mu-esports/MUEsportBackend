@@ -20,6 +20,14 @@ const memberRow = (id: string) => env.DB.prepare('SELECT * FROM members WHERE id
 const accountRow = (id: string) => env.DB.prepare('SELECT * FROM member_accounts WHERE member_id = ?').bind(id).first<Record<string, any>>()
 
 describe('รหัสนักศึกษาในทะเบียน (ข้อมูลในเว็บ)', () => {
+  it('รับ u/U นำหน้า เก็บตัวเลขโดยคงศูนย์นำหน้า และไม่เปิดทะเบียนซ้ำข้ามรูปแบบ', async () => {
+    const staff = await seedUser('staff@example.com', 'staff')
+    const first = await data(await createMember(staff, { studentId: ' U0065002 ' }))
+    expect(first.member.studentId).toBe('0065002')
+    expect((await createMember(staff, { studentId: '0065002' })).status).toBe(409)
+    const results = await Promise.all([createMember(staff, { studentId: 'u6501234' }), createMember(staff, { studentId: '6501234' })])
+    expect(results.map(r => r.status).sort()).toEqual([201,409])
+  })
   it('เก็บเป็นข้อความตามที่กรอก คงเลขศูนย์นำหน้า ตัดช่องว่างหัวท้าย และว่างได้', async () => {
     const staff = await seedUser('staff@example.com', 'staff')
     const created = await data(await createMember(staff, { studentId: '  0012345 ' }))

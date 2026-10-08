@@ -63,15 +63,21 @@ Docs/Slides/Drawings ส่งออกเป็น PDF, PDF และรูป�
 
 ผู้ดูแลตั้งรหัสชั่วคราว 10–128 ตัวอักษร (มีปุ่มสุ่ม) สมาชิกต้องเปลี่ยนครั้งแรก ไม่มีทางอ่านรหัสเก่ากลับ ไม่ส่งรหัสทางอีเมลอัตโนมัติ การพักสมาชิก รีเซ็ต หรือปิดบัญชีทำให้ session เดิมใช้ไม่ได้ สมาชิกติดต่อทีมงานเมื่อลืมรหัสผ่าน
 
-รหัสเก็บใน D1 เป็น Argon2id PHC พร้อม salt สุ่ม 16 ไบต์ ค่า `m=19456 KiB,t=2,p=1` และผลลัพธ์ 32 ไบต์ ไม่ลด work factor เพื่อให้ผ่านโควตา ตัวนับ login อยู่ D1: 5 ครั้งต่อรหัส / 30 ครั้งต่อ IP ใน 15 นาที พัก 15 นาทีและเพิ่มเมื่อผิดซ้ำ สูงสุด 24 ชั่วโมง นับก่อน hash และเก็บ key เป็น hash แทน student ID/IP จริง การตั้งรหัสใหม่โดย admin ล้างการพักของรหัสนั้น
+รหัสนักศึกษาตัวเลขรับได้ทั้ง `u/U` นำหน้าและตัวเลขล้วน เช่น `u6501234` / `6501234` (รหัสสมมติ) เก็บรายการใหม่เป็นข้อความตัวเลข คงเลขศูนย์นำหน้า บัญชีเดิมยังใช้ได้ ถ้าข้อมูลเก่ามีทั้งสองรูปแบบอยู่คนละบัญชี จะปฏิเสธ login แทนการเลือกตัวตนจากรหัสผ่าน ตัวนับ login ของทั้งสองรูปแบบเป็นชุดเดียวกัน
 
-**ต้องเลือก runtime ก่อนเปิดบน production:** มีการวัด Argon2id ใน workerd local ประมาณ 135–149 ms ต่อครั้ง (ไม่ใช่ค่าที่วัดบน production) ขณะที่ Workers Free มี CPU 10 ms ต่อ HTTP request จึงยังรับรองการ login/password บน Free ไม่ได้ วิธีนี้ต้องใช้แผนที่ให้ CPU พอ หรือปรับสถาปัตยกรรมตรวจรหัสผ่านไปยังบริการที่รองรับโดยผู้ดูแลอนุมัติก่อน ไม่อัปเกรดหรือผูกบริการใหม่จากสคริปต์นี้
+**Workers Free:** ใช้ server relief ตาม [แนวทาง Libsodium](https://libsodium.gitbook.io/doc/password_hashing#server-relief) เบราว์เซอร์คำนวณ Argon2id `m=19456 KiB,t=2,p=1` ด้วย salt สุ่ม 16 ไบต์และผล 32 ไบต์ใน Web Worker แล้ว Cloudflare ทำ HMAC-SHA-256 อีกชั้นก่อนเก็บ D1 รูปแบบ `$mu-argon2id$v=1$…` กุญแจ HMAC แยกโดเมนจาก `TOKEN_ENCRYPTION_KEY` ไม่ส่งไปเบราว์เซอร์ ไม่เก็บผลชั้นแรกใน D1 และผูก verifier กับ member ID จึงนำ hash ในฐานข้อมูลมายิง login ตรง ๆ หรือย้ายไปบัญชีอื่นไม่ได้ ไม่ลด work factor ไม่ซื้อแผนเพิ่ม
+
+`POST /auth/member/challenge` รับ `{studentId}` คืนเฉพาะ salt/พารามิเตอร์พร้อม `no-store` บัญชีที่ไม่มีใช้ salt จำลองแบบคงที่ตามรหัส (ทั้งสองรูปแบบได้ค่าเดียวกัน) ไม่มีธงบอกว่ามีบัญชี login ส่ง `{studentId,passwordProof}`; ตั้งรหัสและเปลี่ยนรหัสส่ง proof เพิ่มพร้อมช่องเดิมเพื่อคง validation ความยาวและรหัสใหม่ต่างจากเดิม ใช้ HTTPS เสมอ ผลชั้นแรกถือเป็น credential จึงห้ามบันทึกลง log, localStorage หรือส่งทาง URL
+
+บัญชี Argon2id เดิมแปลงเป็น HMAC wrapper เมื่อขอ challenge โดยไม่คำนวณ Argon2 บน Worker ถ้าพารามิเตอร์เดิมอ่อนกว่าปัจจุบันต้องเปลี่ยนรหัสหลัง login ตัวนับอยู่ D1: 5 ครั้งต่อรหัส / 30 ครั้งต่อ IP ใน 15 นาที พัก 15 นาทีและเพิ่มเมื่อผิดซ้ำ สูงสุด 24 ชั่วโมง; challenge จำกัดแยก 120 ครั้ง/IP/15 นาที การตั้งรหัสใหม่ล้างการพักของรหัสนั้น การเปลี่ยนกุญแจต้องมีแผนย้ายทั้ง Google tokens และ password verifiers ห้ามเปลี่ยนกุญแจเดิมโดยไม่ย้ายข้อมูล
+
+`PASSWORD_HASH_MODE=client` ใช้ทุก environment ที่เปิดเว็บ การคำนวณรหัสบนเซิร์ฟเวอร์แบบเก่ามีเฉพาะ `server-test` ใน bindings ของ Vitest เพื่อรักษาชุดตรวจเก่า ไม่ใส่ค่านี้ใน Cloudflare เบราว์เซอร์ที่เตรียม proof ไม่สำเร็จแสดงข้อผิดพลาดและให้ลองใหม่ ไม่มีการลดความแข็งแรงหรือตัดไปใช้ hash แบบเร็ว
 
 อ้างอิง [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) และ [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 
 ## ขั้นเปิดใช้จริง (ทำหลังอนุมัติรุ่นนี้)
 
-1. ยืนยันแผน Workers/CPU และทดสอบต้นทุน hash บน runtime จริงก่อนเปิดบัญชีสมาชิก ไม่มีการเปลี่ยนแผนจากงานในเครื่องนี้
+1. ใช้ Workers Free ได้ด้วย client work + server verifier ข้างต้น ต้องทดลอง flow เข้าสู่ระบบ/เปลี่ยนรหัสบน runtime จริงก่อนเปิดบัญชีสมาชิก
 2. Google Cloud ของ OAuth client เดิม → Google Auth Platform → Data Access เพิ่ม `https://www.googleapis.com/auth/drive.readonly` เปิด Drive/Docs/Sheets/Forms API เดิมให้ครบ การ preview ไม่ต้องใช้ Picker key; key เดิมยังใช้สำหรับตั้งค่าแหล่งซิงค์
 3. `drive.readonly` เป็น restricted scope: ตรวจข้อกำหนด verification และ security assessment ตามรูปแบบการให้บริการ ขณะ Testing บัญชีชมรมและทีมงาน Google ต้องอยู่ใน Test users สมาชิกที่ login ด้วยรหัสนักศึกษาไม่ต้องเป็น Google Test user ดู [Google Drive scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
 4. สำรอง/ตรวจฐานข้อมูล production แล้วใช้ migration `0005` **ก่อน push** ที่ทำให้ Cloudflare deploy อัตโนมัติ: `npx.cmd wrangler d1 migrations apply DB --remote --env production` คำสั่งใช้เฉพาะ migration ที่ยังไม่ apply ไม่แก้ migrations 0001–0004 ไม่เปลี่ยน TOKEN_ENCRYPTION_KEY

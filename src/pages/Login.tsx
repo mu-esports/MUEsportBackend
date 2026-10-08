@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { Gamepad2, LoaderCircle, LogIn, ShieldX, TriangleAlert } from 'lucide-react'
-import { api } from '../api/client'
+import { loginMember } from '../auth/member-password'
 import { useAuth } from '../auth/AuthProvider'
 import { PasswordField } from '../components/PasswordField'
 import { Field, fieldAria } from '../components/ui'
@@ -75,7 +75,7 @@ export function LoginPage() {
     if (found.password) return passwordRef.current?.focus()
     setBusy(true)
     try {
-      await api('/auth/member/login', { method: 'POST', body: { studentId: studentId.trim(), password }, quiet401: true })
+      await loginMember(studentId.trim(), password)
       // อ่าน session ที่ server เพิ่งออกให้ แล้วหน้านี้จะพาไปหน้าสมาชิกเอง
       await refresh()
     } catch (failure) {
@@ -102,9 +102,10 @@ export function LoginPage() {
               {submitError}
             </p>
           )}
-          <Field label="รหัสนักศึกษา" htmlFor="login-student-id" error={fieldErrors.studentId}>
+          <Field label="รหัสนักศึกษา" htmlFor="login-student-id" error={fieldErrors.studentId} hint="กรอกได้ทั้งแบบมี u นำหน้าและตัวเลขล้วน เช่น u6501234 หรือ 6501234 (รหัสตัวอย่าง)">
             <input
               id="login-student-id"
+              placeholder="u6501234 หรือ 6501234"
               ref={studentRef}
               type="text"
               inputMode="text"
@@ -117,6 +118,7 @@ export function LoginPage() {
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
+              aria-describedby="login-student-id-hint"
               {...fieldAria('login-student-id', fieldErrors.studentId)}
             />
           </Field>
