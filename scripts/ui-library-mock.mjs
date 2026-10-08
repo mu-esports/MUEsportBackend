@@ -79,7 +79,7 @@ export const MOCK_FILES = [
 ]
 const EXTRA = Array.from({ length: 36 }, (_, i) => ({
   id: `file-extra-${String(i + 1).padStart(4, '0')}`, name: `เอกสารประกอบ ${String(i + 1).padStart(2, '0')}`, kind: 'pdf', mimeType: 'application/pdf', modifiedTime: iso(10_000 + i * 60), size: 20_480,
-  shortcut: false, shared: false, folder: null, previewable: true,
+  shortcut: false, shared: false, folder: i % 3 === 0 ? 'โฟลเดอร์รายงานกิจกรรมการแข่งขันและเอกสารประกอบของชมรมประจำปีการศึกษา' : null, previewable: true,
 }))
 const ALL = [...MOCK_FILES, ...EXTRA]
 // ทดสอบภาพย่อผ่าน API ของเว็บ ไม่ใช้ URL Google หรือ credential ใน browser
