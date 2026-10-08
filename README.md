@@ -4,8 +4,9 @@
 ทีมงานเข้าสู่ระบบด้วย Google จัดการข้อมูลและซิงค์กับ Google ของชมรม ส่วนสมาชิกใช้รหัสนักศึกษาและรหัสผ่าน ดูกิจกรรม ไฟล์ Google ของชมรม และข้อมูลของตนเอง โดยไม่ต้องเข้าสู่ Google เพื่อดูตัวอย่างไฟล์
 
 > **สถานะ (แยกสิ่งที่ยืนยันแล้วกับสิ่งที่ยังไม่ได้ทดสอบจริง)**
-> - รุ่น Google Sync (`0b7273c`) deploy แล้วที่ `https://muesportbackend.muesport2567.workers.dev` ใช้ Worker `muesportbackend` และ D1 `mu-esport-backend-production` การตรวจอัตโนมัติของ Google Sync ใช้ Google จำลอง จึงยังต้องทดลอง flow ของแต่ละบริการกับ Google จริง
-> - **งานบัญชีสมาชิกและคลังไฟล์ทั้งบัญชีเป็นรุ่นเตรียมเผยแพร่ `predeploy-member-portal-2026-10-07` ยังไม่ได้ deploy รุ่นนี้ขึ้น production** ใช้ tag แยกจาก `main` ซึ่งผูกกับ Cloudflare เพื่อรอยืนยันแผน Workers และเตรียม migration `0005` ก่อนปล่อยจริง ดู [ผลตรวจล่าสุด](REVIEW_MEMBER_PORTAL.md) และ [บัญชีสมาชิก คลังไฟล์ และขั้นเปิดใช้](MEMBER_ACCESS.md)
+> - **รุ่นบัญชีสมาชิกและคลังไฟล์ (`eb51800`) push เข้า `main` และ deploy แล้วเมื่อ 8 ตุลาคม 2569** ที่ `https://muesportbackend.muesport2567.workers.dev` ใช้ Worker `muesportbackend` และ D1 `mu-esport-backend-production` สำรองฐานข้อมูลและ apply migration `0005` ก่อนเผยแพร่
+> - ยืนยันการ login ทั้ง `u` + ตัวเลขและตัวเลขล้วน เปลี่ยนรหัสครั้งแรก ยกเลิก session เดิม และแยกสิทธิ์สมาชิกบน Workers Free จริงแล้ว ใช้ Argon2id ใน browser Web Worker + keyed server verifier โดยไม่เปลี่ยนแผน ดู [ผลตรวจล่าสุด](REVIEW_MEMBER_PORTAL.md) และ [บัญชีสมาชิก คลังไฟล์ และขั้นเปิดใช้](MEMBER_ACCESS.md)
+> - **คลังไฟล์ทั้งบัญชียังรอผู้ดูแลกด “เปิดใช้คลังไฟล์ Google”** เพื่อให้สิทธิ์ `drive.readonly` การเชื่อม Google เดิมยังอยู่ แต่ยังไม่ได้รับ scope นี้ รายการ/preview Google ในชุดตรวจอัตโนมัติใช้ตัวจำลอง จึงยังต้องทดลองกับ Google จริงหลังให้สิทธิ์
 >   ก่อนเปิดใช้ต้องทำตาม [ขั้นตอนเปิดใช้ Google Sync](#ขั้นตอนเปิดใช้-google-sync) และ [Checklist ทดสอบกับ Google จริง](#checklist-ทดสอบกับ-google-จริง) ดูหัวข้อ [ข้อจำกัดและสิ่งที่ยังไม่ได้ตรวจ](#ข้อจำกัดและสิ่งที่ยังไม่ได้ตรวจ)
 
 ## สารบัญ
