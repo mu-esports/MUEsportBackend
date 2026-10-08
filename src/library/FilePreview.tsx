@@ -181,6 +181,10 @@ export function FilePreview({ fileId, audience, backTo, backLabel = 'กลั�
       <section className="viewer-box" aria-label={`ตัวอย่างของ ${file.name}`}>
         {preview.kind === 'pdf' && <PdfViewer key={version} url={libraryApi.contentUrl(file.id)} name={file.name} />}
         {preview.kind === 'image' && <ImageViewer key={version} url={libraryApi.contentUrl(file.id)} name={file.name} />}
+        {preview.kind === 'thumbnail' && <>
+          <p className="thumbnail-note">ตัวอย่างขนาดย่อจาก Google · เปิดต้นฉบับเพื่อดูความละเอียดเต็ม</p>
+          <ImageViewer key={version} url={libraryApi.thumbnailUrl(file.id)} name={file.name} />
+        </>}
         {preview.kind === 'sheet' && <SheetViewer key={version} fileId={file.id} />}
         {preview.kind === 'form' && <FormViewer key={version} fileId={file.id} note={OPEN_NOTE[audience]} />}
         {preview.kind === 'text' && <TextViewer key={version} fileId={file.id} />}

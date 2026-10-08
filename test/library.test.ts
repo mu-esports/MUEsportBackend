@@ -25,6 +25,78 @@ beforeEach(async () => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
+describe('ภาพย่อของคลังไฟล์', () => {
+  beforeEach(() => connectClub(google, LIBRARY_SCOPES))
+  const addImage = (extra = {}) => drive.add({ name: 'รูปชมรม.HEIC', mimeType: 'image/heic', thumbnailLink: 'https://lh3.googleusercontent.com/test-thumbnail', thumbnailVersion: crypto.randomUUID(), ...extra })
+  const image = (id: string, actor: Actor | null = member) => call(`/api/library/files/${id}/thumbnail`, { as: actor })
+  const mockImage = (type = 'image/jpeg', bytes = new Uint8Array([255, 216, 255, 217])) => {
+    let calls = 0
+    google.services.unshift((url) => {
+      if (url.hostname !== 'lh3.googleusercontent.com') return undefined
+      calls++
+      return new Response(bytes, { headers: { 'Content-Type': type } })
+    })
+    return () => calls
+  }
+
+  it('แสดง HEIC จากภาพย่อที่ Google สร้าง โดยไม่ส่ง URL หรือ token ให้ browser', async () => {
+    const file = addImage()
+    const body = await data(await files(member))
+    expect(body.files[0]).toMatchObject({ thumbnail: true, previewable: true })
+    expect(JSON.stringify(body)).not.toContain('googleusercontent.com')
+    const detail = await data(await call(`/api/library/files/${file.id}`, { as: member }))
+    expect(detail.preview.kind).toBe('thumbnail')
+    mockImage()
+    const response = await image(file.id)
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/jpeg')
+    expect(response.headers.get('Cache-Control')).toContain('no-store')
+    await expectNoTokens(response, JSON.stringify(body))
+    expect((await response.arrayBuffer()).byteLength).toBe(4)
+  })
+
+  it('ใช้ภาพจาก cache แต่ยังตรวจสิทธิ์ใหม่ และไม่ให้เปิดภาพเมื่อถอนการแชร์หรือเปลี่ยน session', async () => {
+    const file = addImage()
+    const count = mockImage()
+    expect((await image(file.id)).status).toBe(200)
+    expect((await image(file.id)).status).toBe(200)
+    expect(count()).toBe(1)
+    expect((await image(file.id, null)).status).toBe(401)
+    file.inaccessible = true
+    expect((await image(file.id)).status).toBe(404)
+    expect(count()).toBe(1)
+  })
+
+  it('ภาพใหม่ไม่ใช้ cache ของรุ่นเก่า', async () => {
+    const file = addImage()
+    const count = mockImage()
+    expect((await image(file.id)).status).toBe(200)
+    file.thumbnailVersion = crypto.randomUUID()
+    expect((await image(file.id)).status).toBe(200)
+    expect(count()).toBe(2)
+  })
+
+  it('ไม่โหลด URL ภายนอกหรือส่ง credential ตาม redirect ไปเว็บไซต์อื่น', async () => {
+    const wrong = addImage({ thumbnailLink: 'https://attacker.example/image.jpg' })
+    expect((await image(wrong.id)).status).toBe(404)
+    const file = addImage()
+    google.services.unshift((url) => url.hostname === 'lh3.googleusercontent.com' ? new Response(null, { status: 302, headers: { Location: 'https://attacker.example/image.jpg' } }) : undefined)
+    expect((await image(file.id)).status).toBe(502)
+    expect(google.calls.some((request) => request.url.includes('attacker.example'))).toBe(false)
+  })
+
+  it('เคารพข้อจำกัดดาวน์โหลดและไม่ส่ง HTML หรือภาพใหญ่เกินกำหนด', async () => {
+    const blocked = addImage({ canDownload: false })
+    expect((await image(blocked.id)).status).toBe(403)
+    const html = addImage()
+    mockImage('text/html')
+    expect((await image(html.id)).status).toBe(415)
+    const large = addImage()
+    mockImage('image/jpeg', new Uint8Array(2 * 1024 * 1024 + 1))
+    expect((await image(large.id)).status).toBe(413)
+  })
+})
+
 const files = (as: Actor | null, query = '') => call(`/api/library/files${query}`, { as })
 const names = async (res: Response) => (await data(res)).files.map((f: any) => f.name)
 const listCalls = () => drive.lists.length

@@ -2,13 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  ClipboardList, CornerUpRight, File, FileSpreadsheet, FileText, Film, Folder, Image, LoaderCircle, Music, Presentation, RefreshCw, Search, SearchX, Share2, TriangleAlert,
+  ClipboardList, CornerUpRight, File, FileSpreadsheet, FileText, Film, Folder, Image, LayoutGrid, List, LoaderCircle, Music, Presentation, RefreshCw, Search, SearchX, Share2, TriangleAlert,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AppError, messageOf } from '../data/errors'
 import { formatTimestamp } from '../lib/datetime'
 import { formatBytes, KIND_LABELS, libraryApi, TYPE_OPTIONS } from './api'
 import type { FileKind, FileListPage, FileType, LibraryFile, ListQuery, SortKey } from './api'
+import { useAuth } from '../auth/AuthProvider'
+import { Thumbnail } from './Thumbnail'
+
+// เก็บเฉพาะในหน่วยความจำและแยกตามผู้ใช้: กลับจากตัวอย่างเห็นรายการเดิมทันที ขณะตรวจข้อมูลใหม่
+const snapshots = new Map<string, { page: FileListPage; at: number }>()
+let snapshotViewer = ''
 
 export const KIND_ICONS: Record<FileKind, LucideIcon> = {
   doc: FileText, sheet: FileSpreadsheet, slides: Presentation, form: ClipboardList, pdf: FileText, image: Image, office: FileText, text: FileText,
@@ -38,9 +44,13 @@ interface Props {
 
 /** รายการไฟล์ของคลังชมรม ใช้ร่วมกันทั้งหน้าทีมงานและหน้าสมาชิก: ค้นหา กรองประเภท เรียง โหลดเพิ่มทีละหน้า และรีเฟรช */
 export function FileList({ basePath, unavailable }: Props) {
+  const { user, member } = useAuth()
+  const viewer = user ? `staff:${user.id}` : member ? `member:${member.id}` : ''
+  if (snapshotViewer !== viewer) { snapshots.clear(); snapshotViewer = viewer }
   const [params, setParams] = useSearchParams()
   const query = queryOf(params)
   const key = `${query.q}\n${query.type}\n${query.sort}`
+  const cacheKey = `${viewer}:${key}`
 
   const [view, setView] = useState<View>({ kind: 'loading' })
   const [viewKey, setViewKey] = useState(key)
@@ -50,6 +60,7 @@ export function FileList({ basePath, unavailable }: Props) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [moreError, setMoreError] = useState('')
   const [text, setText] = useState(query.q)
+  const [layout, setLayout] = useState<'grid' | 'list'>('grid')
   const seq = useRef(0)
   const live = useRef<HTMLParagraphElement>(null)
 
@@ -60,7 +71,17 @@ export function FileList({ basePath, unavailable }: Props) {
       setMoreError('')
       if (fresh) setRefreshing(true)
       else {
-        setView({ kind: 'loading' })
+        const snapshot = snapshots.get(cacheKey)
+        if (snapshot && Date.now() - snapshot.at < 60_000) {
+          setFiles(snapshot.page.files)
+          setMeta(snapshot.page)
+          setView({ kind: 'ready' })
+          setRefreshing(true)
+        } else {
+          snapshots.delete(cacheKey)
+          setView({ kind: 'loading' })
+          setRefreshing(false)
+        }
         setViewKey(key)
         setLoadingMore(false)
       }
@@ -68,6 +89,8 @@ export function FileList({ basePath, unavailable }: Props) {
         (page) => {
           if (current !== seq.current) return
           setFiles(page.files)
+          if (snapshots.size >= 12) snapshots.delete(snapshots.keys().next().value!)
+          snapshots.set(cacheKey, { page, at: Date.now() })
           setMeta(page)
           setView({ kind: 'ready' })
           setRefreshing(false)
@@ -76,8 +99,9 @@ export function FileList({ basePath, unavailable }: Props) {
           if (current !== seq.current) return
           setRefreshing(false)
           if (failure instanceof AppError && failure.code === 'library_unavailable') {
+            snapshots.delete(cacheKey)
             setView({ kind: 'unavailable', message: failure.message, reason: String(failure.data.reason ?? '') })
-          } else if (fresh) {
+          } else if (fresh || snapshots.has(cacheKey)) {
             // รีเฟรชไม่สำเร็จ: รายการเดิมยังอยู่ และบอกว่าไม่ใช่ข้อมูลล่าสุด
             setMeta((previous) => (previous ? { ...previous, stale: true, error: { code: 'refresh_failed', message: messageOf(failure, 'รีเฟรชไม่สำเร็จ ลองอีกครั้ง') } } : previous))
           } else {
@@ -86,10 +110,11 @@ export function FileList({ basePath, unavailable }: Props) {
         },
       )
     },
-    [key],
+    [key, cacheKey],
   )
 
   useEffect(() => load(false), [load])
+  useEffect(() => () => { seq.current++ }, [])
   useEffect(() => setText(query.q), [query.q])
 
   const apply = (next: Partial<ListQuery>) => {
@@ -115,8 +140,10 @@ export function FileList({ basePath, unavailable }: Props) {
       const page = await libraryApi.list(query, { pageToken: meta.nextPageToken })
       if (current !== seq.current) return
       // กันรายการซ้ำเมื่อไฟล์ถูกแก้ระหว่างโหลดสองหน้า
-      setFiles((list) => [...list, ...page.files.filter((file) => !list.some((existing) => existing.id === file.id))])
-      setMeta((previous) => ({ ...page, stale: previous?.stale === true || page.stale, error: page.error ?? previous?.error }))
+      const combined = { ...page, files: [...files, ...page.files.filter((file) => !files.some((existing) => existing.id === file.id))], stale: meta.stale || page.stale, error: page.error ?? meta.error }
+      setFiles(combined.files)
+      setMeta(combined)
+      snapshots.set(cacheKey, { page: combined, at: Date.now() })
       if (live.current) live.current.textContent = `โหลดเพิ่มอีก ${page.files.length} ไฟล์`
     } catch (failure) {
       if (current !== seq.current) return
@@ -167,11 +194,18 @@ export function FileList({ basePath, unavailable }: Props) {
           </select>
         </div>
       </form>
+      <div className="file-view-row">
+        <span className="field-hint">เลือกไฟล์เพื่อเปิดดูตัวอย่าง</span>
+        <div className="file-view-switch" role="group" aria-label="มุมมองไฟล์">
+          <button type="button" className="icon-button" aria-label="มุมมองตาราง" aria-pressed={layout === 'grid'} onClick={() => setLayout('grid')}><LayoutGrid size={19} aria-hidden="true" /></button>
+          <button type="button" className="icon-button" aria-label="มุมมองรายการ" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={19} aria-hidden="true" /></button>
+        </div>
+      </div>
 
       {shownView.kind === 'loading' && (
-        <div className="state-block" role="status">
-          <LoaderCircle aria-hidden="true" size={24} className="spin" />
-          <p>กำลังโหลดรายการไฟล์…</p>
+        <div role="status" className="file-loading">
+          <p className="field-hint">กำลังโหลดรายการไฟล์…</p>
+          <div className="file-grid" aria-hidden="true">{Array.from({ length: 8 }, (_, i) => <div className="file-skeleton" key={i}><div /><span /><span /></div>)}</div>
         </div>
       )}
 
@@ -210,7 +244,7 @@ export function FileList({ basePath, unavailable }: Props) {
               {' · '}
               ข้อมูลจาก Google เมื่อ {formatTimestamp(meta.fetchedAt)}
             </p>
-            <button type="button" className="button button-small" onClick={() => load(true)} aria-disabled={refreshing}>
+            <button type="button" className="button button-small" onClick={() => { if (!refreshing) load(true) }} aria-disabled={refreshing}>
               <RefreshCw aria-hidden="true" size={16} className={refreshing ? 'spin' : undefined} />
               {refreshing ? 'กำลังรีเฟรช…' : 'รีเฟรช'}
             </button>
@@ -245,9 +279,9 @@ export function FileList({ basePath, unavailable }: Props) {
               )}
             </div>
           ) : (
-            <ul className="file-grid">
+            <ul className={`file-grid${layout === 'list' ? ' file-grid-list' : ''}`}>
               {files.map((file) => (
-                <FileCard key={file.id} file={file} to={`${basePath}/${encodeURIComponent(file.id)}`} state={{ search: params.toString() ? `?${params.toString()}` : '' }} />
+                <FileCard key={`${file.id}:${file.modifiedTime}`} file={file} visual={layout === 'grid'} to={`${basePath}/${encodeURIComponent(file.id)}`} state={{ search: params.toString() ? `?${params.toString()}` : '' }} />
               ))}
             </ul>
           )}
@@ -273,10 +307,12 @@ export function FileList({ basePath, unavailable }: Props) {
   )
 }
 
-export function FileCard({ file, to, state }: { file: LibraryFile; to: string; state?: unknown }) {
+export function FileCard({ file, to, state, visual = false }: { file: LibraryFile; to: string; state?: unknown; visual?: boolean }) {
   const Icon = KIND_ICONS[file.kind]
   return (
-    <li className="file-card">
+    <li className={`file-card${visual ? ' file-card-visual' : ''}`}>
+      {visual && (file.thumbnail ? <Thumbnail url={libraryApi.thumbnailUrl(file.id, file.modifiedTime)} /> : <div className={`file-thumbnail file-thumbnail-type file-thumbnail-${file.kind}`} aria-hidden="true"><Icon size={48} strokeWidth={1.4} /><span>{KIND_LABELS[file.kind]}</span></div>)}
+      <div className="file-info">
       <span className={`file-icon file-icon-${file.kind}`} aria-hidden="true">
         <Icon size={22} />
       </span>
@@ -313,6 +349,7 @@ export function FileCard({ file, to, state }: { file: LibraryFile; to: string; s
             {!file.previewable && <span className="file-tag">ไม่มีตัวอย่างในเว็บ</span>}
           </p>
         )}
+      </div>
       </div>
     </li>
   )

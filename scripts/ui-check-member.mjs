@@ -585,6 +585,29 @@ try {
     const calls = await mockLibrary(p)
     await p.goto(`${BASE}/member/files`)
     await p.locator('.file-card').first().waitFor()
+    await p.locator('.file-thumbnail img').first().waitFor()
+    check(`${tag}: การ์ดมีภาพตัวอย่างและโหลดเฉพาะไฟล์ใกล้หน้าจอ`,
+      (await p.locator('.file-card-visual').count()) === 30 && calls.filter((c) => c.includes('/thumbnail')).length > 0 && calls.filter((c) => c.includes('/thumbnail')).length < 25)
+    check(`${tag}: ภาพบนการ์ดไม่โหลดเอกสารเต็มหรือเปิด Google ใน browser`, !calls.some((c) => c.includes('/content')))
+    const listsBeforeToggle = calls.filter((c) => /GET \/api\/library\/files(?:\?|$)/.test(c)).length
+    await p.getByRole('button', { name: 'มุมมองรายการ', exact: true }).click()
+    check(`${tag}: สลับเป็นรายการได้โดยไม่ขอรายการไฟล์ใหม่`,
+      (await p.locator('.file-grid-list .file-card').count()) === 30 && (await p.locator('.file-thumbnail').count()) === 0 && calls.filter((c) => /GET \/api\/library\/files(?:\?|$)/.test(c)).length === listsBeforeToggle)
+    await p.getByRole('button', { name: 'มุมมองตาราง', exact: true }).click()
+    await p.locator('.file-card .file-name').first().click()
+    await p.locator('.preview-title').waitFor()
+    let releaseReturn
+    const returnGate = new Promise((resolve) => { releaseReturn = resolve })
+    const holdReturn = async (route) => { await returnGate; return route.fallback() }
+    await p.route(`${BASE}/api/library/files`, holdReturn)
+    const requestOnReturn = p.waitForRequest((request) => request.url() === `${BASE}/api/library/files`)
+    await p.locator('.preview-back').click()
+    await requestOnReturn
+    check(`${tag}: กลับจากตัวอย่างเห็นรายการเดิมทันที แม้คำขออัปเดตยังรออยู่`,
+      (await p.locator('.file-card').count()) === 30 && (await p.locator('.file-loading').count()) === 0)
+    releaseReturn()
+    await p.getByRole('button', { name: 'รีเฟรช', exact: true }).waitFor()
+    await p.unroute(`${BASE}/api/library/files`, holdReturn)
     check(`${tag}: แสดงหน้าแรกของรายการ 30 ไฟล์ บอกว่ายังมีอีก พร้อมเวลาที่ได้ข้อมูลจาก Google และปุ่มรีเฟรช`,
       (await p.locator('.file-card').count()) === 30 && (await p.locator('.file-status .result-count').innerText()).includes('แสดง 30 ไฟล์แรก ยังมีไฟล์อีก') &&
       /ข้อมูลจาก Google เมื่อ .+ น\./.test(await p.locator('.file-status .result-count').innerText()) && (await p.getByRole('button', { name: 'รีเฟรช' }).isVisible()))

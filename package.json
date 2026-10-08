@@ -17,7 +17,8 @@
     "check:dry-run": "wrangler deploy --dry-run",
     "check:ui": "node scripts/ui-check.mjs",
     "check:ui:live": "node scripts/ui-check-live.mjs",
-    "check:ui:member": "node scripts/ui-check-member.mjs"
+    "check:ui:member": "node scripts/ui-check-member.mjs",
+    "check:ui:library": "node scripts/ui-check-library.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans-thai": "^5.3.0",

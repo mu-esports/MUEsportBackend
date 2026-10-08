@@ -2,7 +2,7 @@ import { api, notifyUnauthorized } from '../api/client'
 
 /** คลังไฟล์ชมรม: ทุกคำขอผ่าน API ของเว็บซึ่งตรวจ session เอง หน้าเว็บไม่เคยได้ token ของ Google */
 export type FileKind = 'doc' | 'sheet' | 'slides' | 'form' | 'pdf' | 'image' | 'office' | 'text' | 'drawing' | 'video' | 'audio' | 'folder' | 'other'
-export type PreviewKind = 'pdf' | 'sheet' | 'form' | 'image' | 'text' | 'none'
+export type PreviewKind = 'pdf' | 'sheet' | 'form' | 'image' | 'thumbnail' | 'text' | 'none'
 export type FileType = 'all' | 'doc' | 'sheet' | 'slides' | 'form' | 'pdf' | 'image' | 'office' | 'other'
 export type SortKey = 'modified' | 'name'
 
@@ -19,6 +19,8 @@ export interface LibraryFile {
   shared: boolean
   folder: string | null
   previewable: boolean
+  /** มีภาพขนาดย่อจาก Google; URL จริงและ credential อยู่ฝั่ง server เท่านั้น */
+  thumbnail?: boolean
 }
 
 export interface FileListPage {
@@ -117,6 +119,7 @@ export const libraryApi = {
   text: (id: string) => api<TextData>(`${fileUrl(id)}/text`),
   /** URL ของเนื้อหาสำหรับตัวอย่างแบบ PDF/รูปภาพ (เบราว์เซอร์ส่ง cookie ของเว็บไปเอง และ server ตรวจ session ทุกครั้ง) */
   contentUrl: (id: string) => `${fileUrl(id)}/content`,
+  thumbnailUrl: (id: string, version?: string | null) => `${fileUrl(id)}/thumbnail${version ? `?v=${encodeURIComponent(version)}` : ''}`,
 }
 
 /** อ่านเหตุผลจาก server เมื่อโหลดเนื้อหาไฟล์ไม่ได้ (เช่น ไฟล์ใหญ่เกิน ถูกลบ หรือเซสชันหมดอายุ) คืน null เมื่อ server ส่งเนื้อหาได้ตามปกติ */

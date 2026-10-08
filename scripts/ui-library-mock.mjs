@@ -55,6 +55,8 @@ const EXTRA = Array.from({ length: 36 }, (_, i) => ({
   shortcut: false, shared: false, folder: null, previewable: true,
 }))
 const ALL = [...MOCK_FILES, ...EXTRA]
+// ทดสอบภาพย่อผ่าน API ของเว็บ ไม่ใช้ URL Google หรือ credential ใน browser
+ALL.forEach((file) => { file.thumbnail = ['doc', 'sheet', 'slides', 'pdf', 'image'].includes(file.kind) })
 
 const SHEET_ROWS = Array.from({ length: 260 }, (_, i) => ({ number: i + 1, cells: i === 0 ? ['วัน', 'เวลา', 'ห้อง', 'ทีม'] : [`วันที่ ${i}`, '18:00–20:00', i % 2 ? 'ห้องชมรม' : 'ห้อง 204', `ทีม ${(i % 5) + 1}`] }))
 
@@ -129,6 +131,7 @@ export async function mockLibrary(page, options = {}) {
         fetchedAt: new Date().toISOString(),
       })
     }
+    if (parts[2] === 'thumbnail') return route.fulfill({ status: 200, contentType: 'image/png', body: PNG })
     if (parts[2] === 'content') {
       if (previewKind === 'image') return route.fulfill({ status: 200, contentType: 'image/png', body: PNG })
       if (previewKind === 'pdf') return route.fulfill({ status: 200, contentType: 'application/pdf', body: pdf })

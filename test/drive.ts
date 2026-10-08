@@ -53,6 +53,8 @@ export interface FakeFile {
   tabs?: FakeTab[]
   /** บัญชีชมรมเปิดไม่ได้ (เช่น ถูกยกเลิกการแชร์): Google ตอบ 404 */
   inaccessible?: boolean
+  thumbnailLink?: string
+  thumbnailVersion?: string
 }
 
 export const PDF_BYTES = new TextEncoder().encode('%PDF-1.4\n% fake pdf body for tests\n%%EOF\n')
@@ -117,6 +119,7 @@ export class FakeDrive {
       parents: file.parents ?? [], ownedByMe: file.ownedByMe ?? true,
       ...(file.shortcut ? { shortcutDetails: file.shortcut } : {}),
       capabilities: { canDownload: file.canDownload ?? true, canEdit: file.canEdit ?? true },
+      ...(file.thumbnailLink ? { hasThumbnail: true, thumbnailLink: file.thumbnailLink, thumbnailVersion: file.thumbnailVersion } : {}),
     }
   }
 

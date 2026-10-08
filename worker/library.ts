@@ -61,7 +61,7 @@ const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 const TEXT_MIMES = ['text/plain', 'text/csv', 'text/markdown', 'text/tab-separated-values']
 
 export type FileKind = 'doc' | 'sheet' | 'slides' | 'form' | 'pdf' | 'image' | 'office' | 'text' | 'drawing' | 'video' | 'audio' | 'folder' | 'other'
-export type PreviewKind = 'pdf' | 'sheet' | 'form' | 'image' | 'text' | 'none'
+export type PreviewKind = 'pdf' | 'sheet' | 'form' | 'image' | 'thumbnail' | 'text' | 'none'
 
 export function kindOf(mimeType: string): FileKind {
   if (mimeType === MIME.doc) return 'doc'
@@ -183,10 +183,14 @@ interface DriveFile {
   ownedByMe?: boolean
   shortcutDetails?: { targetId?: string; targetMimeType?: string }
   capabilities?: { canDownload?: boolean; canEdit?: boolean }
+  hasThumbnail?: boolean
+  thumbnailLink?: string
+  thumbnailVersion?: string
 }
 
-const FILE_FIELDS = 'id,name,mimeType,modifiedTime,size,webViewLink,trashed,parents,ownedByMe,shortcutDetails(targetId,targetMimeType),capabilities(canDownload,canEdit)'
-const LIST_FIELDS = `nextPageToken,incompleteSearch,files(${FILE_FIELDS})`
+const FILE_FIELDS = 'id,name,mimeType,modifiedTime,size,webViewLink,trashed,parents,ownedByMe,hasThumbnail,thumbnailLink,thumbnailVersion,shortcutDetails(targetId,targetMimeType),capabilities(canDownload,canEdit)'
+// รายการต้องรู้เพียงว่ามีภาพย่อ ไม่ต้องอ่าน URL ภาพหรือรุ่นภาพจนกว่าจะเปิดภาพจริง
+const LIST_FIELDS = `nextPageToken,incompleteSearch,files(${FILE_FIELDS.replace(',thumbnailLink,thumbnailVersion', '')})`
 
 const FILE_ID = /^[A-Za-z0-9_-]{5,200}$/
 
@@ -221,7 +225,9 @@ function toItem(file: DriveFile, folder: string | null) {
     /** ไฟล์ที่คนอื่นแชร์ให้บัญชีชมรม (ไม่ได้อยู่ใน Drive ของชมรมเอง) */
     shared: file.ownedByMe === false,
     folder,
-    previewable: previewOf(mimeType) !== 'none',
+    // ไม่ส่ง URL ภาพย่อหรือ token ของ Google ให้ browser: โหลดผ่าน endpoint ที่ตรวจ session
+    thumbnail: !shortcut && file.hasThumbnail === true && file.capabilities?.canDownload !== false,
+    previewable: previewOf(mimeType) !== 'none' || (file.hasThumbnail === true && file.capabilities?.canDownload !== false),
   }
 }
 
@@ -271,6 +277,7 @@ function previewPlan(target: DriveFile): { kind: PreviewKind; reason: NoPreviewR
   const mimeType = target.mimeType ?? ''
   if (mimeType === MIME.folder) return { kind: 'none', reason: 'folder' }
   const kind = previewOf(mimeType)
+  if (kind === 'none' && target.hasThumbnail && target.capabilities?.canDownload !== false) return { kind: 'thumbnail', reason: null }
   if (kind === 'none') return { kind, reason: 'unsupported' }
   // ไฟล์ Google (เอกสาร/สไลด์/ชีต/ฟอร์ม) อ่านผ่าน API ของแต่ละชนิด; ไฟล์ทั่วไปต้องดาวน์โหลดได้
   if (target.capabilities?.canDownload === false) return { kind: 'none', reason: 'download_disabled' }
@@ -400,12 +407,14 @@ async function folderNames(env: AppEnv, gapi: Gapi, files: DriveFile[]): Promise
       if (!(error instanceof GoogleApiError)) throw error
     }
   }
-  let lookups = 0
+  const pending: string[] = []
   for (const id of ids) {
     if (id === rootId) names.set(id, null)
     else if (cached.has(id)) names.set(id, cached.get(id)!.name)
-    else if (lookups < MAX_FOLDER_LOOKUPS && gapi.remaining() > 0) {
-      lookups++
+    else if (pending.length < Math.min(MAX_FOLDER_LOOKUPS, gapi.remaining())) pending.push(id)
+  }
+  // ชื่อโฟลเดอร์ไม่ต้องรอ Google ทีละอัน และยังจำกัดจำนวนคำขอเท่าเดิม
+  await Promise.all(pending.map(async (id) => {
       let name: string | null = null
       try {
         name = (await gapi.json<{ name?: string }>(`${DRIVE_FILES}/${encodeURIComponent(id)}?fields=name&supportsAllDrives=true`)).name ?? null
@@ -415,8 +424,7 @@ async function folderNames(env: AppEnv, gapi: Gapi, files: DriveFile[]): Promise
       }
       names.set(id, name)
       remember(id, { name })
-    }
-  }
+  }))
   if (store.length > 0) await env.DB.batch(store)
   return names
 }
@@ -464,7 +472,7 @@ async function list(ctx: Ctx): Promise<Response> {
   await requireEnabled(ctx.env, session)
   const params = listParams(ctx.url)
   const fresh = ctx.url.searchParams.get('fresh') === '1'
-  const key = `list:${await sha256Hex(JSON.stringify(params))}`
+  const key = `list:v2:${await sha256Hex(JSON.stringify(params))}`
   const cached = await readCache(ctx.env, key)
   const age = cached ? Date.now() - Date.parse(cached.fetched_at) : Infinity
   const reply = (body: ListBody, fetchedAt: string, extra: Record<string, unknown> = {}) => json({ ...body, fetchedAt, pageSize: params.limit, stale: false, ...extra })
@@ -586,6 +594,77 @@ async function googleStream(env: AppEnv, url: string, headers: Record<string, st
 }
 
 const RANGE = /^bytes=(\d{1,15}-\d{0,15}|-\d{1,15})$/
+
+/** รับ URL ที่มาจาก metadata ของ Google เท่านั้น และไม่ส่ง credential ตาม redirect ไป host อื่น */
+function safeThumbnailUrl(value: string | undefined): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    const host = url.hostname
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port &&
+      (host === 'googleusercontent.com' || host.endsWith('.googleusercontent.com') || /^lh\d+\.google\.com$/.test(host) || host === 'drive.google.com') ? url.href : null
+  } catch { return null }
+}
+
+const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
+
+/** GET .../thumbnail: ภาพขนาดย่อจาก Drive ไม่ดาวน์โหลดเอกสารเต็มเพื่อสร้างการ์ด */
+async function thumbnail(ctx: Ctx, id: string): Promise<Response> {
+  const session = requireViewer(ctx)
+  await requireFileAccess(ctx.env, session)
+  // ตรวจสิทธิ์ต้นฉบับและปลายทางใหม่ทุกครั้ง แม้ภาพอยู่ใน cache แล้ว
+  const { target } = await resolveFile(makeGapi(ctx.env, 3), id, session)
+  if (target.capabilities?.canDownload === false) throw fileError(new GoogleApiError(403, 'cannotDownloadFile'), session)
+  const source = safeThumbnailUrl(target.thumbnailLink)
+  if (!target.hasThumbnail || !source) throw new HttpError(404, 'thumbnail_unavailable', 'Google ยังไม่มีภาพตัวอย่างของไฟล์นี้')
+  const version = target.thumbnailVersion ?? target.modifiedTime ?? source
+  const cacheKey = new Request(new URL(`/__library-thumbnail/${await sha256Hex(`${target.id}:${version}`)}`, ctx.url.origin))
+  const cached = await caches.default.match(cacheKey)
+  const output = (body: BodyInit | null, type: string) => new Response(body, { headers: { ...CONTENT_HEADERS, 'Content-Type': type } })
+  if (cached) return output(cached.body, cached.headers.get('Content-Type') ?? 'image/jpeg')
+
+  const download = async (token: string) => {
+    let url = source
+    for (let redirects = 0; redirects < 4; redirects++) {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, redirect: 'manual', signal: AbortSignal.timeout(10_000) })
+      if (![301, 302, 303, 307, 308].includes(response.status)) return response
+      const location = response.headers.get('Location')
+      await response.body?.cancel()
+      const next = location ? safeThumbnailUrl(new URL(location, url).href) : null
+      if (!next) throw new HttpError(502, 'thumbnail_unavailable', 'โหลดภาพตัวอย่างจาก Google ไม่สำเร็จ')
+      url = next
+    }
+    throw new HttpError(502, 'thumbnail_unavailable', 'โหลดภาพตัวอย่างจาก Google ไม่สำเร็จ')
+  }
+  let upstream: Response
+  try {
+    upstream = await download(await getAccessToken(ctx.env))
+    if (upstream.status === 401) { await upstream.body?.cancel(); upstream = await download(await getAccessToken(ctx.env, true)) }
+    if (!upstream.ok) throw await toApiError(upstream)
+  } catch (error) { throw fileError(error, session) }
+  const type = (upstream.headers.get('Content-Type') ?? '').split(';')[0].trim().toLowerCase()
+  if (!IMAGE_MIMES.includes(type) || Number(upstream.headers.get('Content-Length')) > MAX_THUMBNAIL_BYTES) {
+    await upstream.body?.cancel()
+    throw new HttpError(415, 'thumbnail_unavailable', 'รูปแบบภาพตัวอย่างจาก Google ใช้งานไม่ได้')
+  }
+  const reader = upstream.body?.getReader()
+  if (!reader) throw new HttpError(502, 'thumbnail_unavailable', 'Google ไม่ส่งภาพตัวอย่างมา')
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    length += value.byteLength
+    if (length > MAX_THUMBNAIL_BYTES) { await reader.cancel(); throw new HttpError(413, 'thumbnail_unavailable', 'ภาพตัวอย่างใหญ่เกินกำหนด') }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+  // cache ภายใน Worker เท่านั้น: URL ภายในนี้ไม่มี route สาธารณะ และคำตอบให้ browser เป็น no-store
+  await caches.default.put(cacheKey, new Response(bytes, { headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=300' } })).catch(() => undefined)
+  return output(bytes, type)
+}
 
 /**
  * GET /api/library/files/:id/content — เนื้อหาสำหรับตัวอย่างแบบ PDF หรือรูปภาพ ส่งต่อจาก Google เป็น stream
@@ -786,6 +865,7 @@ export async function handleLibrary(ctx: Ctx, parts: string[]): Promise<Response
   if (parts.length === 1) return list(ctx)
   if (parts.length === 2) return detail(ctx, parts[1])
   if (parts.length === 3) {
+    if (parts[2] === 'thumbnail') return thumbnail(ctx, parts[1])
     if (parts[2] === 'content') return content(ctx, parts[1])
     if (parts[2] === 'text') return textPreview(ctx, parts[1])
     if (parts[2] === 'sheet') return sheetPreview(ctx, parts[1])
