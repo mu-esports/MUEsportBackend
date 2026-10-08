@@ -30,15 +30,15 @@
 }
 .file-card:hover { border-color: var(--accent-line); }
 .file-info { display: flex; gap: 12px; align-items: flex-start; width: 100%; min-width: 0; }
-.file-card-visual { display: grid; gap: 0; padding: 8px; align-content: start; transition: border-color 120ms, box-shadow 120ms; }
+.file-card-visual { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 8px; align-content: start; transition: border-color 120ms, box-shadow 120ms; }
 .file-card-visual:hover { box-shadow: 0 4px 16px rgb(15 23 42 / 0.08); }
 .file-card-visual .file-info { padding: 12px 4px 4px; }
 .file-card-visual .file-icon { width: 34px; height: 34px; border-radius: 8px; }
 .file-card-visual .file-icon svg { width: 19px; height: 19px; }
 .file-card-visual .file-name { min-height: 2.9em; font-size: 0.9375rem; }
 .file-card-visual .file-meta { font-size: 0.75rem; gap: 0 8px; }
-.file-thumbnail { display: grid; place-items: center; height: 174px; overflow: hidden; border-radius: 8px; background: var(--surface-muted); }
-.file-thumbnail img { width: 100%; height: 100%; object-fit: contain; }
+.file-thumbnail { display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; min-width: 0; width: 100%; height: 174px; overflow: hidden; border-radius: 8px; background: var(--surface-muted); }
+.file-thumbnail img { display: block; min-width: 0; max-width: 100%; width: 100%; height: 100%; object-fit: contain; }
 .file-thumbnail-type { gap: 8px; align-content: center; color: var(--accent-text); background: var(--accent-soft); }
 .file-thumbnail-type span { font-size: 0.75rem; font-weight: 500; }
 .file-thumbnail-sheet { color: var(--success-text); background: var(--success-bg); }

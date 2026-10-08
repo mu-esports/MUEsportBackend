@@ -2,6 +2,7 @@
 // ใช้ดูสถานะของหน้าจอเท่านั้น เพราะเครื่องพัฒนาไม่มีการเชื่อม Google จริง
 // การคุยกับ Google Drive/Sheets/Forms ของ Worker (สิทธิ์ การแบ่งหน้า ชนิดไฟล์ ขนาด) ตรวจใน `npm test` ด้วย Google จำลองฝั่ง server
 // ไม่มีข้อใดที่ใช้ไฟล์นี้เป็นการตรวจกับ Google จริง
+import { deflateSync } from 'node:zlib'
 
 /** PDF ขนาดเล็กที่ถูกต้องตามรูปแบบ (ข้อความหน้าเดียวต่อหน้า) สร้างในหน่วยความจำ ไม่อ่านไฟล์จากที่ใด */
 export function makePdf(pages = ['MU Esport sample document']) {
@@ -32,8 +33,34 @@ export function makePdf(pages = ['MU Esport sample document']) {
   return Buffer.from(out, 'latin1')
 }
 
-// PNG 1x1 สีน้ำเงิน
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64')
+// ภาพจำลองขนาดจริง 256x320: ตรวจว่า intrinsic size ไม่ดัน grid ให้ล้นจอเหมือนภาพ 1x1
+function sampleThumbnail() {
+  const crc = (bytes) => {
+    let value = 0xffffffff
+    for (const byte of bytes) {
+      value ^= byte
+      for (let bit = 0; bit < 8; bit++) value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0)
+    }
+    return (value ^ 0xffffffff) >>> 0
+  }
+  const chunk = (type, data) => {
+    const name = Buffer.from(type), length = Buffer.alloc(4), checksum = Buffer.alloc(4)
+    length.writeUInt32BE(data.length); checksum.writeUInt32BE(crc(Buffer.concat([name, data])))
+    return Buffer.concat([length, name, data, checksum])
+  }
+  const width = 256, height = 320, pixels = Buffer.alloc((width * 3 + 1) * height)
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const offset = y * (width * 3 + 1) + 1 + x * 3
+    const blue = x >= 24 && x < 232 && y >= 26 && y < 55
+    const line = x >= 24 && x < 218 && y > 80 && y < 270 && y % 26 < 5
+    const color = blue ? [29, 78, 216] : line ? [203, 213, 225] : [255, 255, 255]
+    pixels.set(color, offset)
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))])
+}
+const PNG = sampleThumbnail()
 
 const iso = (minutesAgo) => new Date(Date.now() - minutesAgo * 60_000).toISOString()
 const LONG_NAME = 'รายงานสรุปผลการแข่งขันภายในชมรมและข้อเสนอแนะจากสมาชิกทุกทีม ประจำภาคเรียนที่ 1 ปีการศึกษา 2569 ฉบับปรับปรุงครั้งที่ 3 (ร่างสำหรับที่ประชุมใหญ่)'
