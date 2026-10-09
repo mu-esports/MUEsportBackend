@@ -175,6 +175,7 @@
 
 /* บัญชีของฉัน */
 .m-account { display: grid; gap: 24px; max-width: 760px; }
+.m-profile-photo { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .m-profile { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .m-profile dt { color: var(--text-muted); font-size: 0.875rem; }
 .m-profile dd { font-weight: 500; }
@@ -197,12 +198,15 @@
 .login-card { display: grid; gap: 16px; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--m-shadow); }
 .login-card h2 { display: flex; align-items: center; gap: 8px; }
 .login-card h2 svg { color: var(--accent-text); }
-.login-card .button-large, .login-staff .button-large { width: 100%; }
+.login-card .button-large { width: 100%; }
 .login-forgot { color: var(--text-muted); font-size: 0.9375rem; }
-/* ส่วนของทีมงานเป็นส่วนรอง: ไม่มีกรอบการ์ด หัวข้อเล็กกว่า */
-.login-staff { display: grid; gap: 8px; padding: 8px 4px 0; }
-.login-staff h2 { font-size: 1rem; }
-.login-staff-note { color: var(--text-muted); font-size: 0.875rem; }
+/* ชื่อผู้ใช้แสดงตัวอักษรอังกฤษเป็นตัวเล็กเสมอ (รวมช่วงที่แป้นพิมพ์กำลังประกอบตัวอักษร ซึ่งค่าจริงยังไม่ถูกแปลง) */
+.login-username { text-transform: lowercase; }
+.login-username::placeholder { text-transform: none; }
+/* ช่องทางของทีมงาน: ข้อความแทนที่ช่องรหัสผ่าน สูงใกล้เคียงกันเพื่อไม่ให้ฟอร์มกระโดดมาก */
+.login-google { display: grid; gap: 8px; min-height: 72px; align-content: center; }
+.login-google-note { display: flex; gap: 8px; align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); color: var(--text-muted); font-size: 0.9375rem; }
+.login-google-note svg { flex: none; margin-top: 3px; color: var(--accent-text); }
 
 
 /* จอแคบและ tablet แนวตั้ง: หัวเว็บสั้น เมนูสี่หน้าอยู่ด้านล่างของจอ (เมนูบนหัวเว็บต้องการความกว้างราว 900px) */

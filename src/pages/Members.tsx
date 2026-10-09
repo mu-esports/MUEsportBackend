@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { ExternalLink, Pencil, Search, SearchX, TriangleAlert, UserPlus, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ExternalLink, ImagePlus, Pencil, Search, SearchX, TriangleAlert, UserPlus, Users } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
+import { Avatar } from '../components/Avatar'
 import { Dialog } from '../components/Dialog'
 import { SyncBar } from '../components/SyncBar'
 import { useToast } from '../components/Toast'
@@ -9,12 +10,14 @@ import { DataBoundary, EmptyState, PageHeader, StatusBadge } from '../components
 import { hasCode, isUnconfirmed, messageOf } from '../data/errors'
 import { useStore } from '../data/store'
 import { useSync } from '../data/sync'
-import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
+import { ATHLETE_STATUS_LABELS, ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES } from '../data/types'
 import type { Member, MemberRole, MemberStatus } from '../data/types'
 import { formatDate } from '../lib/datetime'
-import { AccountSection, ConfirmLoginIdDialog, DisableAccountDialog, SetPasswordDialog } from './AccountDialogs'
+import { IS_DEMO } from '../mode'
+import { AccountSection, ConfirmLoginIdDialog, DeleteAccountDialog, DisableAccountDialog, SetPasswordDialog } from './AccountDialogs'
 import type { AccountAction } from './AccountDialogs'
 import { MemberForm } from './MemberForm'
+import { PhotoDialog } from './PhotoDialog'
 import { SuspendConfirm } from './SuspendConfirm'
 
 type FormTarget = { mode: 'add' } | { mode: 'edit'; id: string }
@@ -40,6 +43,11 @@ export function MembersPage() {
   const [accountAction, setAccountAction] = useState<AccountAction | null>(null)
   // ผลของการจัดการบัญชีครั้งล่าสุด แสดงในกล่องรายละเอียดของสมาชิกคนนั้น
   const [accountNotice, setAccountNotice] = useState('')
+  // กล่องจัดการรูปของสมาชิกที่เปิดรายละเอียดอยู่ และผลของการเปลี่ยนรูปครั้งล่าสุด
+  const [photoOpen, setPhotoOpen] = useState(false)
+  const [photoNotice, setPhotoNotice] = useState('')
+  // ปุ่มในกล่องรายละเอียดที่ควรได้ focus กลับ เมื่อปิดกล่องย่อยโดยไม่บันทึก (กล่องรายละเอียดถูกสร้างใหม่ จึงระบุปุ่มด้วยชื่อ)
+  const returnFocus = useRef<string | null>(null)
   const [busy, setBusy] = useState(false)
   // แสดงในหน้ารายละเอียดที่เปิดอยู่ เพราะข้อความแจ้งผลนอก dialog จะถูกฉากมืดบัง
   const [statusError, setStatusError] = useState('')
@@ -57,6 +65,37 @@ export function MembersPage() {
       { replace: true },
     )
   }, [searchParams, setSearchParams, state])
+
+  // ลิงก์จากหน้านักกีฬา: /members?member=<รหัสสมาชิก> เปิดรายละเอียดของคนนั้น (ไม่พบก็เปิดรายการตามปกติ)
+  useEffect(() => {
+    const wanted = searchParams.get('member')
+    if (!wanted || state !== 'ready') return
+    if (members.some((m) => m.id === wanted)) setDetailId(wanted)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('member')
+        return next
+      },
+      { replace: true },
+    )
+  }, [searchParams, setSearchParams, state, members])
+
+  // ทำงานหลังกล่องรายละเอียดเปิดกลับและตั้ง focus เริ่มต้นของตัวเองแล้ว: ย้าย focus ไปปุ่มที่ผู้ใช้กดเปิดกล่องย่อย
+  useEffect(() => {
+    const target = returnFocus.current
+    if (!target || accountAction !== null || photoOpen) return
+    // คืนหลัง Dialog เปิดและ browser ตั้ง focus เริ่มต้นเสร็จแล้ว มิฉะนั้น focus ถูกปุ่มแก้ไขดึงกลับ
+    const frame = requestAnimationFrame(() => {
+      const button = document.querySelector<HTMLElement>(`dialog[open] [data-return-focus="${target}"]`)
+      if (button) { button.focus(); returnFocus.current = null }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [accountAction, photoOpen])
+  const closeAccountDialog = () => {
+    returnFocus.current = accountAction ? `account-${accountAction}` : null
+    setAccountAction(null)
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -94,6 +133,7 @@ export function MembersPage() {
   const openDetail = (id: string | null) => {
     setStatusError('')
     setAccountNotice('')
+    setPhotoNotice('')
     setDetailId(id)
   }
 
@@ -233,10 +273,15 @@ export function MembersPage() {
                     {filtered.map((m) => (
                       <tr key={m.id}>
                         <th scope="row" className="cell-name">
-                          <span className="member-name">{m.name}</span>
-                          <span className="member-nickname">{m.nickname}</span>
-                          {m.studentId && <span className="member-student-id">รหัสนักศึกษา {m.studentId}</span>}
-                          <SourceNote member={m} sheetLinked={sheetLinked} />
+                          <span className="member-cell">
+                            <Avatar memberId={m.id} version={m.photoVersion} name={m.nickname || m.name} size="md" />
+                            <span className="member-cell-text">
+                              <span className="member-name">{m.name}</span>
+                              <span className="member-nickname">{m.nickname}</span>
+                              {m.studentId && <span className="member-student-id">รหัสนักศึกษา {m.studentId}</span>}
+                              <SourceNote member={m} sheetLinked={sheetLinked} />
+                            </span>
+                          </span>
                         </th>
                         <td data-label="บทบาท">{ROLE_LABELS[m.role]}</td>
                         <td data-label="สถานะ">
@@ -265,7 +310,7 @@ export function MembersPage() {
         )}
       </DataBoundary>
 
-      {detail && !form && !suspendTarget && !accountAction && (
+      {detail && !form && !suspendTarget && !accountAction && !photoOpen && (
         <Dialog
           title={detail.name}
           description={`ชื่อเล่น: ${detail.nickname}`}
@@ -334,6 +379,23 @@ export function MembersPage() {
               </span>
             </p>
           )}
+          {!IS_DEMO && (
+            <div className="person-head">
+              <Avatar memberId={detail.id} version={detail.photoVersion} name={detail.nickname || detail.name} size="xl" label={detail.photoVersion ? `รูปของ ${detail.name}` : `${detail.name} ยังไม่มีรูป`} />
+              <div className="person-head-actions">
+                {photoNotice && (
+                  <p className="notice notice-success" role="status">
+                    {photoNotice}
+                  </p>
+                )}
+                <button type="button" className="button button-small" data-return-focus="photo" onClick={() => setPhotoOpen(true)}>
+                  <ImagePlus aria-hidden="true" size={16} />
+                  {detail.photoVersion ? 'เปลี่ยนหรือลบรูป' : 'เพิ่มรูป'}
+                </button>
+                <p className="field-hint">รูปนี้ใช้ร่วมกับหน้านักกีฬาและบัญชีของสมาชิกคนนี้</p>
+              </div>
+            </div>
+          )}
           <dl className="detail-list">
             <div>
               <dt>รหัสนักศึกษา</dt>
@@ -361,6 +423,20 @@ export function MembersPage() {
               <dt>ช่องทางติดต่อ</dt>
               <dd>{detail.contact || <span className="muted">ไม่ได้ระบุ</span>}</dd>
             </div>
+            {!IS_DEMO && (
+              <div>
+                <dt>นักกีฬา</dt>
+                <dd className="break-word">
+                  {detail.athlete ? (
+                    <>
+                      {detail.athlete.game} · {ATHLETE_STATUS_LABELS[detail.athlete.status]} (<Link to="/athletes">ดูหน้านักกีฬา</Link>)
+                    </>
+                  ) : (
+                    <span className="muted">ไม่ได้เป็นนักกีฬา</span>
+                  )}
+                </dd>
+              </div>
+            )}
             <div className="detail-wide">
               <dt>หมายเหตุ</dt>
               <dd className="pre-line">{detail.note || <span className="muted">ไม่มีหมายเหตุ</span>}</dd>
@@ -378,9 +454,28 @@ export function MembersPage() {
         </Dialog>
       )}
 
-      {detail && accountAction === 'password' && <SetPasswordDialog member={detail} onClose={() => setAccountAction(null)} onSaved={accountSaved} />}
-      {detail && accountAction === 'disable' && <DisableAccountDialog member={detail} onClose={() => setAccountAction(null)} onSaved={accountSaved} />}
-      {detail && accountAction === 'login-id' && <ConfirmLoginIdDialog member={detail} onClose={() => setAccountAction(null)} onSaved={accountSaved} />}
+      {detail && accountAction === 'password' && <SetPasswordDialog member={detail} onClose={closeAccountDialog} onSaved={accountSaved} />}
+      {detail && accountAction === 'disable' && <DisableAccountDialog member={detail} onClose={closeAccountDialog} onSaved={accountSaved} />}
+      {detail && accountAction === 'login-id' && <ConfirmLoginIdDialog member={detail} onClose={closeAccountDialog} onSaved={accountSaved} />}
+      {detail && accountAction === 'delete' && (
+        <DeleteAccountDialog member={detail} onClose={closeAccountDialog} onSaved={accountSaved} onRefresh={() => void refresh().catch(() => undefined)} />
+      )}
+
+      {detail && photoOpen && (
+        <PhotoDialog
+          person={detail}
+          onClose={() => {
+            returnFocus.current = 'photo'
+            setPhotoOpen(false)
+          }}
+          onRefresh={() => void refresh().catch(() => undefined)}
+          onChanged={(message) => {
+            refresh().catch(() => undefined)
+            setPhotoOpen(false)
+            setPhotoNotice(message)
+          }}
+        />
+      )}
 
       {suspendTarget && (
         <SuspendConfirm

@@ -160,7 +160,7 @@ try {
     page.evaluate((scope) => {
       const out = []
       const root = document.querySelector(scope) ?? document.body
-      for (const el of root.querySelectorAll('button, select, input:not([type=hidden]), textarea, a.button, .m-tab, .m-nav-link, .m-activity, .text-link, .m-brand, .file-card')) {
+      for (const el of root.querySelectorAll('button, select, input:not([type=hidden]), textarea, a.button, .m-tab, .m-nav-link, .m-activity, .text-link, .m-brand, .file-card, .file-category')) {
         const r = el.getBoundingClientRect()
         const style = getComputedStyle(el)
         if (r.width === 0 || r.height === 0 || style.visibility === 'hidden' || el.closest('[hidden]') || el.closest('.visually-hidden')) continue
@@ -232,7 +232,7 @@ try {
 
   const memberLogin = async (page, studentId, password) => {
     await page.goto(`${BASE}/login`)
-    await page.locator('#login-student-id').fill(studentId)
+    await page.locator('#login-username').fill(studentId)
     await page.locator('#login-password').fill(password)
     await page.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
   }
@@ -262,15 +262,27 @@ try {
     await p.context().close()
   }
 
-  // ================= 1. หน้าเข้าสู่ระบบ =================
+  // ================= 1. หน้าเข้าสู่ระบบ (ฟอร์มเดียว) =================
+  const loginSettled = (page) => page.waitForFunction(() => document.querySelector('.login-card button[type="submit"]')?.getAttribute('aria-disabled') !== 'true')
   {
     const p = await newPage(1440, 900, null, 0, { theme: 'dark' })
     await p.goto(`${BASE}/login`)
     await p.getByRole('heading', { name: 'เข้าสู่ระบบ', level: 1 }).waitFor()
+    await loginSettled(p)
     const headings = await p.locator('main h2').allInnerTexts()
-    check('[จริง] หน้าเข้าสู่ระบบ: ส่วน “สำหรับสมาชิก” มาก่อนและเป็นฟอร์มหลัก ส่วน “สำหรับทีมงาน” เป็นส่วนรอง', headings[0] === 'สำหรับสมาชิก' && headings[1] === 'สำหรับทีมงาน', headings.join(' | '))
-    check('[จริง] หน้าเข้าสู่ระบบ: มีช่องรหัสนักศึกษา รหัสผ่าน ปุ่มเข้าสู่ระบบ และข้อความลืมรหัสผ่านให้ติดต่อทีมงาน',
-      (await p.locator('#login-student-id').isVisible()) && (await p.locator('#login-password').getAttribute('type')) === 'password' &&
+    check('[จริง] หน้าเข้าสู่ระบบเป็นฟอร์มเดียว: มีหัวข้อเดียว “สำหรับสมาชิก” ไม่มีส่วนของทีมงาน และไม่มีปุ่มหรือลิงก์ Google แยก',
+      headings.length === 1 && headings[0] === 'สำหรับสมาชิก' && (await p.locator('.login-staff').count()) === 0 &&
+      (await p.getByRole('link', { name: /Google/ }).count()) === 0 && (await p.getByRole('button', { name: /Google/ }).count()) === 0 && !(await p.locator('main').innerText()).includes('Google'), headings.join(' | '))
+    const field = await p.locator('#login-username').evaluate((el) => ({
+      label: document.querySelector('label[for="login-username"]')?.textContent, placeholder: el.placeholder, describedBy: el.getAttribute('aria-describedby'), type: el.type,
+      autocomplete: el.autocomplete, autocapitalize: el.getAttribute('autocapitalize'), autocorrect: el.getAttribute('autocorrect'), spellcheck: el.getAttribute('spellcheck'),
+    }))
+    check('[จริง] ช่องแรกชื่อ “ชื่อผู้ใช้”: placeholder สั้น ไม่มีรหัสตัวอย่างหรือคำอธิบายรูปแบบรหัส ไม่มี aria-describedby ที่ชี้ข้อความที่ไม่มีแล้ว และปิดการแก้คำ/ขึ้นต้นตัวใหญ่อัตโนมัติ',
+      field.label === 'ชื่อผู้ใช้' && field.placeholder === 'ชื่อผู้ใช้' && field.describedBy === null && field.type === 'text' && field.autocomplete === 'username' &&
+      field.autocapitalize === 'none' && field.autocorrect === 'off' && field.spellcheck === 'false' && (await p.locator('#login-username-hint, #login-username-hint').count()) === 0 &&
+      !/\d{5,}|u65|มี u นำหน้า|ตัวเลขล้วน|รหัสตัวอย่าง/.test(await p.locator('main').innerText()), JSON.stringify(field))
+    check('[จริง] หน้าเข้าสู่ระบบ: มีช่องรหัสผ่าน ปุ่มเข้าสู่ระบบ และข้อความลืมรหัสผ่านให้ติดต่อทีมงาน',
+      (await p.locator('#login-password').getAttribute('type')) === 'password' &&
       (await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).isVisible()) && (await p.getByText('ลืมรหัสผ่าน? ติดต่อทีมงาน').isVisible()))
     check('[จริง] หน้าเข้าสู่ระบบ: ไม่มีทางสมัครบัญชีเอง ไม่มีเมนูหรือข้อมูลหลังบ้าน และไม่มีแผงกราฟิกของหน้าเดิม',
       (await p.getByText(/สมัครสมาชิก|สร้างบัญชี|ลงทะเบียน/).count()) === 0 && (await p.locator('.sidebar, .nav-link, table, .auth-hero, .auth-shape, .theme-switch').count()) === 0)
@@ -283,36 +295,41 @@ try {
       body: await contrast(p, '.login-title'),
       muted: await contrast(p, '.login-welcome'),
       primary: await contrast(p, '.login-card .button-primary'),
-      inputBorder: await contrast(p, '#login-student-id', 'borderTopColor'),
-      note: await contrast(p, '.login-staff-note'),
+      inputBorder: await contrast(p, '#login-username', 'borderTopColor'),
+      note: await contrast(p, '.login-forgot'),
     }
     await p.locator('.login-card .button-primary').hover()
     ratios.primaryHover = await contrast(p, '.login-card .button-primary')
-    await p.locator('#login-student-id').focus()
-    ratios.focusRing = await contrast(p, '#login-student-id', 'outlineColor')
+    await p.locator('#login-username').focus()
+    ratios.focusRing = await contrast(p, '#login-username', 'outlineColor')
     check('[จริง] contrast หน้าเข้าสู่ระบบ: ข้อความ ≥4.5:1 ปุ่มหลักทั้งปกติและ hover ≥4.5:1 ขอบช่องกรอกและเส้น focus ≥3:1',
       ratios.body >= 4.5 && ratios.muted >= 4.5 && ratios.note >= 4.5 && ratios.primary >= 4.5 && ratios.primaryHover >= 4.5 && ratios.inputBorder >= 3 && ratios.focusRing >= 3, JSON.stringify(ratios))
 
     // คีย์บอร์ด: ลำดับ Tab และเส้น focus
-    await p.locator('#login-student-id').focus()
-    const order = []
-    for (let i = 0; i < 4; i++) {
-      order.push(await p.evaluate(() => {
-        const el = document.activeElement
-        const style = getComputedStyle(el)
-        return { id: el.id || el.getAttribute('aria-label') || el.textContent.trim(), outline: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2 }
-      }))
-      await p.keyboard.press('Tab')
+    const tabOrder = async (steps) => {
+      await p.locator('#login-username').focus()
+      const order = []
+      for (let i = 0; i < steps; i++) {
+        order.push(await p.evaluate(() => {
+          const el = document.activeElement
+          const style = getComputedStyle(el)
+          return { id: el.id || el.getAttribute('aria-label') || el.textContent.trim(), outline: style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) >= 2 }
+        }))
+        await p.keyboard.press('Tab')
+      }
+      return order
     }
-    check('[จริง] คีย์บอร์ด: Tab ไล่จากรหัสนักศึกษา → รหัสผ่าน → ปุ่มแสดงรหัส → ปุ่มเข้าสู่ระบบ และทุกจุดมีเส้น focus',
-      order.map((o) => o.id).join(' > ') === 'login-student-id > login-password > แสดงรหัสผ่าน > เข้าสู่ระบบ' && order.every((o) => o.outline), JSON.stringify(order))
+    const order = await tabOrder(4)
+    check('[จริง] คีย์บอร์ด: Tab ไล่จากชื่อผู้ใช้ → รหัสผ่าน → ปุ่มแสดงรหัส → ปุ่มเข้าสู่ระบบ และทุกจุดมีเส้น focus',
+      order.map((o) => o.id).join(' > ') === 'login-username > login-password > แสดงรหัสผ่าน > เข้าสู่ระบบ' && order.every((o) => o.outline), JSON.stringify(order))
 
     // ตรวจที่หน้าเว็บ: ช่องว่าง
     await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     check('[จริง] ไม่กรอกอะไร: บอกที่ช่องนั้นทั้งสองช่อง focus ไปช่องแรกที่ผิด และยังไม่ส่งคำขอ',
-      (await p.locator('#login-student-id-error').innerText()) === 'กรอกรหัสนักศึกษา' && (await p.locator('#login-password-error').innerText()) === 'กรอกรหัสผ่าน' &&
-      (await p.locator('#login-student-id').getAttribute('aria-invalid')) === 'true' && (await p.evaluate(() => document.activeElement?.id)) === 'login-student-id')
-    const errorContrast = await contrast(p, '#login-student-id-error')
+      (await p.locator('#login-username-error').innerText()) === 'กรอกชื่อผู้ใช้' && (await p.locator('#login-password-error').innerText()) === 'กรอกรหัสผ่าน' &&
+      (await p.locator('#login-username').getAttribute('aria-invalid')) === 'true' && (await p.locator('#login-username').getAttribute('aria-describedby')) === 'login-username-error' &&
+      (await p.evaluate(() => document.activeElement?.id)) === 'login-username')
+    const errorContrast = await contrast(p, '#login-username-error')
     check('[จริง] contrast ข้อความผิดพลาดของช่องกรอก ≥4.5:1', errorContrast >= 4.5, String(errorContrast))
 
     // แสดง/ซ่อนรหัสผ่าน
@@ -325,13 +342,13 @@ try {
       shown && (await p.locator('#login-password').getAttribute('type')) === 'password' && (await p.locator('#login-password').inputValue()) === 'Wrong-Password-1')
 
     // รหัสผิด (Worker + Argon2id จริง)
-    await p.locator('#login-student-id').fill('6512345')
+    await p.locator('#login-username').fill('6512345')
     await p.keyboard.press('Enter')
     const alert = p.locator('.login-card .form-alert')
     check('[จริง] รหัสผ่านผิด: ข้อความไม่บอกว่ารหัสนักศึกษานี้มีบัญชีหรือไม่ บอกทางติดต่อทีมงาน และค่าที่กรอกยังอยู่',
       (await appears(alert)) && (await alert.innerText()) === 'รหัสนักศึกษาหรือรหัสผ่านไม่ถูกต้อง ถ้าลืมรหัสผ่านให้ติดต่อทีมงานเพื่อตั้งรหัสใหม่' &&
-      (await p.locator('#login-student-id').inputValue()) === '6512345' && (await p.locator('#login-password').inputValue()) === 'Wrong-Password-1' && p.url().endsWith('/login'))
-    await p.locator('#login-student-id').fill('9999999')
+      (await p.locator('#login-username').inputValue()) === '6512345' && (await p.locator('#login-password').inputValue()) === 'Wrong-Password-1' && p.url().endsWith('/login'))
+    await p.locator('#login-username').fill('9999999')
     await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await p.waitForResponse((r) => r.url().endsWith('/auth/member/login'))
     check('[จริง] รหัสนักศึกษาที่ไม่มีในระบบ: ได้ข้อความเดียวกับรหัสผ่านผิดทุกตัวอักษร',
@@ -342,25 +359,227 @@ try {
     await p.context().close()
   }
 
-  // หน้าเข้าสู่ระบบทุกความกว้าง
-  for (const [w, h] of [[1440, 900], [1024, 768], [768, 1024], [390, 844], [360, 740], [320, 568], [844, 390]]) {
+  // ---------- ชื่อผู้ใช้เป็นตัวเล็ก และคำว่า google เลือกช่องทางของทีมงาน ----------
+  {
+    const p = await newPage(1440, 900)
+    // คำขอไปเส้นทางเข้าสู่ระบบของสมาชิก (challenge/login) ต้องไม่เกิดเลยในช่องทาง Google
+    const memberCalls = []
+    p.on('request', (request) => {
+      const path = new URL(request.url()).pathname
+      if (path.startsWith('/auth/member/')) memberCalls.push(`${request.method()} ${path}`)
+    })
+    // จุดเริ่มขั้นตอน Google ของ server (/auth/login) ถูกตอบแทนด้วยหน้าเปล่าในเบราว์เซอร์ทดสอบ: ตรวจเฉพาะว่าหน้าเว็บไปที่ใดและส่งอะไรไป ไม่ได้ไป Google จริง
+    const starts = []
+    await p.route(`${BASE}/auth/login**`, (route) => {
+      starts.push(route.request().url())
+      return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>oauth start (stub)</title><p id="stub-start">stub</p>' })
+    })
+    const user = p.locator('#login-username')
+    const open = async (query = '') => {
+      await p.goto(`${BASE}/login${query}`)
+      await user.waitFor()
+      await loginSettled(p)
+    }
+    const submitButton = p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true })
+
+    await open('?return=%2Fmembers')
+    await user.pressSequentially('U65ABcd')
+    const typed = await user.inputValue()
+    for (let i = 0; i < 3; i++) await p.keyboard.press('ArrowLeft')
+    await p.keyboard.type('X')
+    const middle = await user.evaluate((el) => ({ value: el.value, start: el.selectionStart, end: el.selectionEnd }))
+    check('[จริง] ชื่อผู้ใช้: ตัวอักษรอังกฤษกลายเป็นตัวเล็กทันทีที่พิมพ์ และพิมพ์แทรกกลางข้อความแล้วเคอร์เซอร์อยู่ตำแหน่งเดิม ไม่กระโดดไปท้ายช่อง',
+      typed === 'u65abcd' && middle.value === 'u65axbcd' && middle.start === 5 && middle.end === 5, JSON.stringify({ typed, middle }))
+
+    // วางข้อความ (insertText = ข้อความเข้าช่องทีเดียวแบบการวาง) ทับส่วนที่เลือกอยู่
+    await user.fill('65-end')
+    await user.evaluate((el) => el.setSelectionRange(0, 2))
+    await p.keyboard.insertText('B65ZZ')
+    const pasted = await user.evaluate((el) => ({ value: el.value, start: el.selectionStart, end: el.selectionEnd }))
+    check('[จริง] ชื่อผู้ใช้: วางข้อความตัวใหญ่ทับส่วนที่เลือก ได้ตัวเล็ก คงเลขและเครื่องหมายเดิม และเคอร์เซอร์อยู่ท้ายส่วนที่วาง',
+      pasted.value === 'b65zz-end' && pasted.start === 5 && pasted.end === 5, JSON.stringify(pasted))
+
+    // แป้นพิมพ์แบบประกอบตัวอักษร (IME) ผ่าน CDP ของเบราว์เซอร์ทดสอบ: ระหว่างประกอบไม่แก้ข้อความ (แสดงเป็นตัวเล็กด้วย CSS) จบแล้วจึงเป็นตัวเล็กจริง
+    const cdp = await p.context().newCDPSession(p)
+    await user.fill('')
+    await user.focus()
+    await cdp.send('Input.imeSetComposition', { text: 'GOO', selectionStart: 3, selectionEnd: 3 })
+    const composing = await user.evaluate((el) => ({ value: el.value, shown: getComputedStyle(el).textTransform }))
+    await cdp.send('Input.insertText', { text: 'GOO' })
+    const composed = await user.evaluate((el) => ({ value: el.value, start: el.selectionStart }))
+    check('[จริง] ชื่อผู้ใช้กับแป้นพิมพ์แบบประกอบตัวอักษร (IME): การประกอบไม่ถูกตัดหรือพิมพ์ซ้ำ ระหว่างประกอบแสดงเป็นตัวเล็ก และจบแล้วค่าเป็นตัวเล็ก',
+      composing.value.toLowerCase() === 'goo' && composing.shown === 'lowercase' && composed.value === 'goo' && composed.start === 3, JSON.stringify({ composing, composed }))
+    await cdp.detach()
+
+    // คำว่า google ทุกรูปแบบตัวพิมพ์ (และมีช่องว่างหัวท้าย): ช่องรหัสผ่านหาย ไม่ออกจากหน้าระหว่างพิมพ์ กดปุ่มหรือ Enter แล้วจึงไปเริ่มที่ /auth/login เท่านั้น
+    const results = []
+    for (const [index, word] of ['google', 'Google', 'GOOGLE', 'gOoGlE', '  GooGLE  '].entries()) {
+      await open('?return=%2Fmembers')
+      // พิมพ์รหัสผ่านค้างไว้ก่อน เพื่อดูว่าถูกล้างเมื่อเลือกช่องทาง Google
+      await user.fill('6512345')
+      await p.locator('#login-password').fill('Secret-Typed-1')
+      await user.fill('')
+      await user.pressSequentially(word)
+      const before = starts.length
+      const state = {
+        word,
+        value: await user.inputValue(),
+        heading: await p.locator('.login-card h2').innerText(),
+        passwordFields: await p.locator('#login-password, .password-input, input[type="password"]').count(),
+        note: await p.locator('.login-google[role="status"]').innerText().catch(() => ''),
+        button: (await submitButton.count()) === 1 && (await submitButton.getAttribute('aria-disabled')) !== 'true',
+        forgot: await p.getByText('ลืมรหัสผ่าน?').count(),
+        stayed: new URL(p.url()).pathname === '/login' && starts.length === before,
+      }
+      if (index % 2 === 0) await submitButton.click()
+      else await p.keyboard.press('Enter')
+      await p.locator('#stub-start').waitFor()
+      state.start = starts.slice(before).join(' ')
+      results.push(state)
+    }
+    check('[จริง+stub จุดเริ่ม Google] พิมพ์ google (ทุกรูปแบบตัวพิมพ์ และมีช่องว่างหัวท้าย): ช่องแสดงเป็นตัวเล็ก หัวข้อเป็น “สำหรับทีมงาน” ช่องรหัสผ่านและข้อความลืมรหัสผ่านหายไป มีข้อความบอกว่าไม่ต้องกรอกรหัสผ่าน และปุ่มยังชื่อ “เข้าสู่ระบบ”',
+      results.every((r) => r.value === r.word.toLowerCase() && r.heading === 'สำหรับทีมงาน' && r.passwordFields === 0 && r.note.includes('ไม่ต้องกรอกรหัสผ่าน') && r.button && r.forgot === 0),
+      JSON.stringify(results.map(({ word, value, heading, passwordFields, button, forgot }) => ({ word, value, heading, passwordFields, button, forgot }))))
+    check('[จริง+stub จุดเริ่ม Google] ช่องทาง google: ไม่ออกจากหน้าระหว่างพิมพ์ กดปุ่มหรือ Enter แล้วจึงไป /auth/login ของ server พร้อม return เดิมเท่านั้น (ไม่มีชื่อผู้ใช้หรือรหัสผ่านใน URL)',
+      results.every((r) => r.stayed && r.start === `${BASE}/auth/login?return=%2Fmembers`), JSON.stringify(results.map((r) => ({ word: r.word, stayed: r.stayed, start: r.start }))))
+    check('[จริง] ช่องทาง google ไม่เรียกเส้นทางเข้าสู่ระบบของสมาชิกเลย (ไม่มี challenge ไม่มีการคำนวณ/ส่งรหัสผ่าน) ทั้งห้ารูปแบบ', memberCalls.length === 0, memberCalls.join(' | '))
+
+    // ลำดับ Tab ในช่องทาง google และไม่มีข้อมูลเข้าสู่ระบบค้างในที่เก็บของเบราว์เซอร์
+    await open()
+    await user.fill('6512345')
+    await p.locator('#login-password').fill('Secret-Typed-1')
+    await user.fill('google')
+    await user.focus()
+    await p.keyboard.press('Tab')
+    const afterTab = await p.evaluate(() => document.activeElement?.textContent?.trim())
+    const stored = await p.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage), document.cookie, location.href]))
+    check('[จริง] ช่องทาง google: Tab จากชื่อผู้ใช้ไปที่ปุ่มเข้าสู่ระบบโดยตรง (ช่องรหัสผ่านไม่อยู่ในลำดับ) และไม่มีชื่อผู้ใช้หรือรหัสผ่านใน URL, cookie ที่อ่านได้ หรือที่เก็บของเบราว์เซอร์',
+      afterTab === 'เข้าสู่ระบบ' && !stored.includes('Secret-Typed-1') && !stored.includes('6512345') && !/google/i.test(stored), afterTab)
+
+    // สลับกลับเป็นช่องทางสมาชิก: ช่องรหัสผ่านกลับมาแบบว่าง และเข้าสู่ระบบด้วยรหัสนักศึกษาได้ตามเดิม (Worker จริง)
+    await user.fill('googl')
+    const back = { heading: await p.locator('.login-card h2').innerText(), password: await p.locator('#login-password').inputValue(), type: await p.locator('#login-password').getAttribute('type') }
+    await user.fill('U0065002')
+    await p.locator('#login-password').fill(READY)
+    await submitButton.click()
+    await p.waitForURL(`${BASE}/member`)
+    check('[จริง] ลบคำว่า google ออก: กลับเป็น “สำหรับสมาชิก” ช่องรหัสผ่านว่าง (รหัสที่พิมพ์ค้างไว้ก่อนหน้าถูกล้างแล้ว) และเข้าสู่ระบบด้วยรหัสนักศึกษาที่พิมพ์ตัวใหญ่มี U นำหน้าได้ตามเดิม',
+      back.heading === 'สำหรับสมาชิก' && back.password === '' && back.type === 'password' && p.url() === `${BASE}/member` &&
+      memberCalls.join(' ') === 'POST /auth/member/challenge POST /auth/member/login' && (await apiAs(p, '/api/session')).body?.member?.id === actors.ready.id, JSON.stringify({ back, memberCalls }))
+    await p.context().close()
+  }
+
+  // ---------- ช่องทาง google: สถานะที่ต้องคงไว้ (กำลังตรวจ, เชื่อมต่อไม่ได้, ยังไม่ตั้งค่า, กลับจาก Google ไม่สำเร็จ, return ที่ปลอดภัย) ----------
+  {
+    const p = await newPage(1280, 800)
+    const starts = []
+    await p.route(`${BASE}/auth/login**`, (route) => {
+      starts.push(route.request().url())
+      return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>oauth start (stub)</title><p id="stub-start">stub</p>' })
+    })
+    const user = p.locator('#login-username')
+    const submitButton = p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true })
+
+    // ยังไม่รู้ผลจาก server: ปุ่มยังกดไปต่อไม่ได้ และข้อความบอกว่ากำลังตรวจ
+    let release
+    const held = new Promise((resolve) => (release = resolve))
+    await p.route(`${BASE}/api/session`, async (route) => {
+      await held
+      return route.fallback()
+    })
+    await p.goto(`${BASE}/login`)
+    await user.fill('google')
+    const loadingText = await p.locator('.login-google').innerText()
+    const loadingDisabled = await submitButton.getAttribute('aria-disabled')
+    // ปุ่มบอกว่ายังใช้ไม่ได้ด้วย aria-disabled (ยังรับ focus และยังกดได้จริง): กดจริงแบบผู้ใช้ที่ไม่รอ
+    await submitButton.click({ force: true })
+    const stayedWhileLoading = new URL(p.url()).pathname === '/login' && starts.length === 0
+    release()
+    await loginSettled(p)
+    check('[จริง] ช่องทาง google ขณะยังตรวจสถานะกับ server ไม่เสร็จ: บอกว่ากำลังตรวจ ปุ่มยังไปต่อไม่ได้ และพร้อมใช้เมื่อได้คำตอบ',
+      loadingText.includes('กำลังตรวจการเข้าสู่ระบบ') && loadingDisabled === 'true' && stayedWhileLoading && (await p.locator('.login-google').innerText()).includes('ไม่ต้องกรอกรหัสผ่าน'), loadingText)
+    await p.unroute(`${BASE}/api/session`)
+
+    // เชื่อมต่อระบบกลางไม่ได้: บอกเหตุผล มีปุ่มลองอีกครั้ง และไม่ออกจากหน้า
+    await p.route(`${BASE}/api/session`, (route) => route.abort())
+    await p.goto(`${BASE}/login`)
+    await user.fill('GOOGLE')
+    await p.locator('.login-google').getByText('เชื่อมต่อระบบกลางไม่ได้').waitFor()
+    await p.keyboard.press('Enter')
+    const stayedOnError = new URL(p.url()).pathname === '/login' && starts.length === 0
+    await p.unroute(`${BASE}/api/session`)
+    await p.locator('.login-google').getByRole('button', { name: 'ลองอีกครั้ง' }).click()
+    await p.locator('.login-google').getByText('ไม่ต้องกรอกรหัสผ่าน').waitFor()
+    check('[จริง] ช่องทาง google เมื่อเชื่อมต่อระบบกลางไม่ได้: บอกเหตุผล ไม่ออกจากหน้า กด “ลองอีกครั้ง” แล้วใช้งานได้ และคำที่พิมพ์ยังอยู่',
+      stayedOnError && (await user.inputValue()) === 'google' && (await submitButton.getAttribute('aria-disabled')) !== 'true')
+
+    // เว็บไซต์ยังไม่ได้ตั้งค่า Google login (ตอบ /api/session แทนในเบราว์เซอร์ทดสอบ)
+    await p.route(`${BASE}/api/session`, (route) => route.fulfill({ json: { authConfigured: false, user: null, member: null, csrfToken: null } }))
+    await p.goto(`${BASE}/login`)
+    await user.fill('google')
+    await p.locator('.login-google').getByText('ทีมงานยังเข้าสู่ระบบไม่ได้').waitFor()
+    const unconfigured = await p.locator('.login-google').innerText()
+    await submitButton.click({ force: true })
+    await p.locator('#login-username').press('Enter')
+    check('[จำลองสถานะ] ยังไม่ได้ตั้งค่า Google login: ช่องทาง google บอกว่าทีมงานยังเข้าสู่ระบบไม่ได้ ไม่มีชื่อตัวแปรตั้งค่าในข้อความ และกดแล้วไม่ออกจากหน้า',
+      unconfigured.includes('ยังไม่ได้ตั้งค่าการเข้าสู่ระบบด้วย Google') && !/GOOGLE_|CLIENT|SECRET/.test(unconfigured) && (await submitButton.getAttribute('aria-disabled')) === 'true' &&
+      new URL(p.url()).pathname === '/login' && starts.length === 0, unconfigured.replace(/\n/g, ' / '))
+    // สมาชิกยังเข้าสู่ระบบได้ตามปกติแม้ยังไม่ได้ตั้งค่า Google: ช่องรหัสผ่านกลับมาเมื่อพิมพ์รหัสนักศึกษา
+    await user.fill('6512345')
+    check('[จำลองสถานะ] ยังไม่ได้ตั้งค่า Google login: ช่องทางสมาชิกยังมีช่องรหัสผ่านและปุ่มใช้งานได้', (await p.locator('#login-password').isVisible()) && (await submitButton.getAttribute('aria-disabled')) !== 'true')
+    await p.unroute(`${BASE}/api/session`)
+
+    // กลับจาก Google ไม่สำเร็จ (ยกเลิก หรือขั้นตอนหมดอายุ): บอกเหตุผล และลองใหม่ได้ด้วยการกดปุ่มเดียว
+    const callbacks = []
+    for (const [code, text] of [['google_denied', 'ยกเลิกการเข้าสู่ระบบที่ Google แล้ว ยังไม่ได้เข้าสู่ระบบ'], ['state_expired', 'ใช้เวลาเข้าสู่ระบบนานเกินไป เริ่มเข้าสู่ระบบใหม่อีกครั้ง'], ['not_configured', 'เว็บไซต์ยังไม่ได้ตั้งค่าการเข้าสู่ระบบด้วย Google']]) {
+      await p.goto(`${BASE}/login?error=${code}`)
+      await user.waitFor()
+      await loginSettled(p)
+      callbacks.push({
+        code, alert: (await p.locator('.login-card .form-alert').innerText()) === text, value: await user.inputValue(), heading: await p.locator('.login-card h2').innerText(),
+        password: await p.locator('#login-password').count(),
+      })
+    }
+    const before = starts.length
+    await submitButton.click()
+    await p.locator('#stub-start').waitFor()
+    check('[จริง+stub จุดเริ่ม Google] กลับจาก Google ไม่สำเร็จ: หน้าเข้าสู่ระบบบอกเหตุผล เลือกช่องทาง google ไว้ให้ ไม่มีช่องรหัสผ่าน และกดเข้าสู่ระบบเพื่อลองใหม่ได้ทันที',
+      callbacks.every((c) => c.alert && c.value === 'google' && c.heading === 'สำหรับทีมงาน' && c.password === 0) && starts.slice(before).join(' ') === `${BASE}/auth/login?return=%2F`, JSON.stringify(callbacks))
+
+    // return ที่ชี้ไปหน้าของสมาชิกหรือออกนอกเว็บ: ช่องทางของทีมงานพากลับหน้าแรกของหลังบ้านเท่านั้น
+    const safe = []
+    for (const value of ['%2Fmember%2Ffiles', '%2F%2Fevil.example%2Fx', '%2F%5Cevil.example', 'https%3A%2F%2Fevil.example', '%2Flogin%3Freturn%3D%2Fmembers']) {
+      await p.goto(`${BASE}/login?return=${value}`)
+      await user.waitFor()
+      await loginSettled(p)
+      await user.fill('google')
+      const count = starts.length
+      await p.keyboard.press('Enter')
+      await p.locator('#stub-start').waitFor()
+      safe.push(starts.slice(count).join(' '))
+    }
+    check('[จริง+stub จุดเริ่ม Google] ค่า return ที่เป็นหน้าของสมาชิกหรือชี้ออกนอกเว็บ: ช่องทาง google ส่ง return=/ เท่านั้น', safe.every((url) => url === `${BASE}/auth/login?return=%2F`), safe.join(' | '))
+    await p.context().close()
+  }
+
+  // หน้าเข้าสู่ระบบทุกความกว้าง ทั้งช่องทางสมาชิกและช่องทาง google
+  for (const [w, h] of [[1440, 900], [1024, 768], [1023, 768], [768, 1024], [390, 844], [360, 740], [320, 568], [844, 390]]) {
     const p = await newPage(w, h)
     await p.goto(`${BASE}/login?return=%2Fmember%2Ffiles`)
-    await p.locator('#login-student-id').waitFor()
-    // ส่วนทีมงานรู้ผลจาก server ทีหลังฟอร์มสมาชิก: วัดหน้าเมื่อส่วนนั้นแสดงผลสุดท้ายแล้ว (ปุ่ม Google หรือข้อความว่ายังไม่ได้ตั้งค่า)
-    await p.locator('.login-staff .auth-inline').waitFor({ state: 'detached' })
-    check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h}: ตัวอย่างรหัสสมมติและคำอธิบายรองรับ u หรือตัวเลขล้วน`,
-      (await p.locator('#login-student-id').getAttribute('placeholder')) === 'u6501234 หรือ 6501234' && (await p.locator('#login-student-id-hint').innerText()).includes('u6501234'))
+    await p.locator('#login-username').waitFor()
+    await loginSettled(p)
     const small = await smallTargets(p)
-    check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h}: ไม่ล้นจอ และทุกส่วนที่กดได้สูง ≥44px`, (await noOverflow(p)) && small.length === 0, JSON.stringify(small))
-    const google = p.getByRole('link', { name: 'เข้าสู่ระบบด้วย Google' })
-    // ตรวจทุกครั้ง ไม่ข้ามเงียบ ๆ: เครื่องที่ตั้งค่า Google login แล้วต้องมีปุ่ม เครื่องที่ยังไม่ตั้งค่าต้องบอกเหตุผลแทนปุ่ม
-    const configured = (await apiAs(p, '/api/session')).body?.authConfigured === true
-    check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h}: ${configured ? 'ปุ่ม Google ของทีมงานไม่พาไปหน้าของสมาชิกตามค่า return' : 'ยังไม่ได้ตั้งค่า Google login: บอกว่าทีมงานยังเข้าสู่ระบบไม่ได้ และไม่แสดงปุ่ม Google'}`,
-      configured
-        ? (await google.count()) === 1 && (await google.getAttribute('href')) === '/auth/login?return=%2F'
-        : (await google.count()) === 0 && (await p.getByText('ทีมงานยังเข้าสู่ระบบไม่ได้').isVisible()))
-    if (w === 1440 || w === 390) await shot(p, `member-login-${w}`)
+    check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h}: ไม่ล้นจอ ทุกส่วนที่กดได้สูง ≥44px และไม่มีรหัสตัวอย่าง คำอธิบายรูปแบบรหัส หรือปุ่ม Google แยก`,
+      (await noOverflow(p)) && small.length === 0 && (await p.locator('#login-username').getAttribute('placeholder')) === 'ชื่อผู้ใช้' &&
+      !/\d{5,}|มี u นำหน้า|Google/.test(await p.locator('main').innerText()) && (await p.getByRole('link', { name: /Google/ }).count()) === 0, JSON.stringify(small))
+    if (w === 1440 || w === 390 || w === 360) await shot(p, `member-login-${w}`)
+    await p.locator('#login-username').fill('google')
+    await p.locator('.login-google').getByText('ไม่ต้องกรอกรหัสผ่าน').waitFor()
+    const smallGoogle = await smallTargets(p)
+    const box = await p.locator('.login-card').boundingBox()
+    check(`[จริง] หน้าเข้าสู่ระบบ ${w}×${h} ช่องทาง google: ไม่ล้นจอ ทุกส่วนที่กดได้สูง ≥44px และการ์ดอยู่ในจอ`,
+      (await noOverflow(p)) && smallGoogle.length === 0 && box.x >= 0 && box.x + box.width <= w, JSON.stringify(smallGoogle))
+    if (w === 1440 || w === 390 || w === 360) await shot(p, `member-login-google-${w}`)
     await p.context().close()
   }
 
@@ -978,7 +1197,7 @@ try {
       closeButtons === 0 && settled && closedTimes === 0, JSON.stringify({ closeButtons, settled, closedTimes }))
     await shot(p, 'member-session-expired-390', false)
     await expired.getByRole('link', { name: 'เข้าสู่ระบบอีกครั้ง' }).click()
-    await p.locator('#login-student-id').fill('6500005')
+    await p.locator('#login-username').fill('6500005')
     await p.locator('#login-password').fill(TEMP)
     await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await p.waitForURL(`${BASE}/member/password`)
@@ -1006,7 +1225,7 @@ try {
     await out.goto(`${BASE}/member/files`)
     await out.waitForURL(`${BASE}/login?return=%2Fmember%2Ffiles`)
     check('[จริง] ออกจากระบบสำเร็จ: เปิดหน้าของสมาชิกอีกไม่ได้ ถูกพาไปหน้าเข้าสู่ระบบพร้อมจำหน้าที่จะกลับ', out.url() === `${BASE}/login?return=%2Fmember%2Ffiles`)
-    await out.locator('#login-student-id').fill('0065002')
+    await out.locator('#login-username').fill('0065002')
     await out.locator('#login-password').fill(OWN)
     await out.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await out.waitForURL(`${BASE}/member/files`)
@@ -1205,7 +1424,7 @@ try {
     const fresh = await newPage(390, 844)
     await memberLogin(fresh, '0065002', OWN)
     const oldRejected = await appears(fresh.locator('.login-card .form-alert'))
-    await fresh.locator('#login-student-id').fill('0065999')
+    await fresh.locator('#login-username').fill('0065999')
     await fresh.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await fresh.waitForURL(`${BASE}/member`)
     check('[จริง] หลังผู้ดูแลยืนยัน: session เดิมถูกยกเลิก รหัสเดิมเข้าไม่ได้ รหัสใหม่เข้าได้ด้วยรหัสผ่านเดิม และยังเป็นบัญชีของสมาชิกคนเดิม',

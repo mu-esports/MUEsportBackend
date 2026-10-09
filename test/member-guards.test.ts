@@ -223,7 +223,8 @@ describe('สมาชิกเห็นและแก้ได้เฉพา�
     const member = await seedMemberActor({ name: 'ก้อง ทดสอบ', nickname: 'ก้อง', studentId: '6511111', contact: 'line: kong', note: 'หมายเหตุภายในของทีมงาน', role: 'staff' })
     const body = await data(await call('/api/member/me', { as: member }))
     expect(body).toEqual({
-      member: { name: 'ก้อง ทดสอบ', nickname: 'ก้อง', studentId: '6511111', loginId: '6511111', status: 'active', contact: 'line: kong', version: 1, contactEditable: true, passwordChangedAt: null },
+      // photoVersion = รุ่นของรูปโปรไฟล์ของตัวเอง (null = ยังไม่มีรูป) ไม่มีเนื้อรูปและไม่มีข้อมูลนักกีฬาหรือข้อมูลภายในอื่น
+      member: { name: 'ก้อง ทดสอบ', nickname: 'ก้อง', studentId: '6511111', loginId: '6511111', status: 'active', contact: 'line: kong', version: 1, contactEditable: true, passwordChangedAt: null, photoVersion: null },
     })
     expect(JSON.stringify(body)).not.toContain('หมายเหตุภายใน')
   })

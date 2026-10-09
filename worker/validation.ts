@@ -2,7 +2,7 @@ import { sha256Hex } from './crypto'
 import { nowIso } from './env'
 import type { AppEnv } from './env'
 import { HttpError } from './http'
-import { normalizeStudentId } from '../src/lib/student-id'
+import { isGoogleLoginWord, normalizeStudentId } from '../src/lib/student-id'
 
 export const invalid = (message: string, field?: string) => new HttpError(422, 'validation_failed', message, field ? { field } : {})
 
@@ -26,7 +26,8 @@ export function text(body: Record<string, unknown>, field: string, label: string
  */
 export const STUDENT_ID_MAX = 32
 const STUDENT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,30}[A-Za-z0-9])?$/
-export const isStudentId = (value: string) => STUDENT_ID_PATTERN.test(value)
+// คำว่า google สงวนไว้ให้หน้าเข้าสู่ระบบใช้เลือกช่องทางของทีมงาน จึงไม่ถือเป็นรหัสนักศึกษาที่ใช้ได้
+export const isStudentId = (value: string) => STUDENT_ID_PATTERN.test(value) && !isGoogleLoginWord(value)
 export const STUDENT_ID_RULE = 'ใช้ได้เฉพาะตัวเลข ตัวอักษรอังกฤษ และเครื่องหมาย - _ . คั่นกลาง ไม่มีช่องว่าง ยาวไม่เกิน 32 ตัวอักษร'
 
 /** รหัสนักศึกษาจากฟอร์ม: ว่างได้ (ยังไม่ได้กรอก) ถ้ากรอกต้องถูกรูปแบบ */
@@ -35,6 +36,7 @@ export function studentIdField(body: Record<string, unknown>, field = 'studentId
   if (raw === undefined || raw === null) return ''
   if (typeof raw !== 'string') throw invalid('รหัสนักศึกษาไม่ถูกต้อง', field)
   const value = raw.trim()
+  if (isGoogleLoginWord(value)) throw invalid('รหัสนักศึกษาใช้คำว่า google ไม่ได้ เพราะเป็นคำที่ทีมงานใช้เลือกเข้าสู่ระบบด้วย Google', field)
   if (value && !isStudentId(value)) throw invalid(`รหัสนักศึกษา${STUDENT_ID_RULE}`, field)
   return normalizeStudentId(value)
 }

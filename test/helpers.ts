@@ -13,7 +13,7 @@ export const ORIGIN = 'https://staff.example.test'
 export const CLUB_EMAIL = 'muesport2567@gmail.com'
 
 const TABLES = [
-  'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
+  'athletes', 'member_photos', 'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
   'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',
   'idempotency_keys', 'events', 'members', 'oauth_states', 'sessions', 'users',
@@ -90,10 +90,10 @@ interface SeedAccountOptions {
 export async function seedAccount(memberId: string, options: SeedAccountOptions): Promise<void> {
   const now = new Date().toISOString()
   await env.DB.prepare(
-    `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'seed-admin', 'seed-admin', ?, ?)`,
+    `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at, revision)
+     VALUES (?, ?, ?, ?, ?, ?, 'seed-admin', 'seed-admin', ?, ?, ?)`,
   )
-    .bind(memberId, options.loginId, options.passwordHash ?? testPasswordHash(), options.status ?? 'active', options.mustChange ? 1 : 0, now, now, now)
+    .bind(memberId, options.loginId, options.passwordHash ?? testPasswordHash(), options.status ?? 'active', options.mustChange ? 1 : 0, now, now, now, randomToken(12))
     .run()
 }
 
@@ -134,8 +134,11 @@ export async function call(path: string, options: CallOptions = {}): Promise<Res
     headers.set('Origin', ORIGIN)
     if (options.as) headers.set('X-CSRF-Token', options.as.csrf)
   }
-  let body: string | undefined
-  if (options.body !== undefined) {
+  let body: string | Uint8Array | ReadableStream<Uint8Array> | undefined
+  if (options.body instanceof Uint8Array || options.body instanceof ReadableStream) {
+    // เนื้อหาแบบไฟล์ (เช่น รูปโปรไฟล์): ผู้เรียกกำหนด Content-Type เอง
+    body = options.body
+  } else if (options.body !== undefined) {
     body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body)
     if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   }

@@ -36,7 +36,7 @@ describe('รหัสนักศึกษาในทะเบียน (ข�
     const blank = await data(await createMember(staff, { name: 'ไม่มีรหัส' }))
     expect(blank.member.studentId).toBe('')
     // สมาชิกที่ยังไม่มีรหัสนักศึกษา: ข้อมูลอยู่ครบ แต่ยังเปิดบัญชีไม่ได้ พร้อมเหตุผล
-    expect(blank.member.account).toEqual({ state: 'none', loginId: null, loginMismatch: false, passwordSetAt: null, lastLoginAt: null, blocked: 'no_student_id' })
+    expect(blank.member.account).toEqual({ state: 'none', loginId: null, loginMismatch: false, passwordSetAt: null, lastLoginAt: null, blocked: 'no_student_id', revision: null })
     expect(created.member.account.blocked).toBeNull()
     const list = await data(await call('/api/members', { as: staff }))
     expect(list.members.map((m: any) => m.studentId).sort()).toEqual(['', '0012345'])

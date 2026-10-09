@@ -19,12 +19,17 @@ interface Options {
   idempotencyKey?: string
   /** ไม่แจ้งสถานะเซสชันหมดอายุเมื่อได้ 401 (ผู้เรียกจัดการเอง เช่น ตอนออกจากระบบ) */
   quiet401?: boolean
+  /** ส่งไฟล์เป็นเนื้อหาของคำขอโดยตรง (เช่น รูปโปรไฟล์) ใช้แทน body */
+  file?: Blob
+  /** ยกเลิกคำขอที่ค้างอยู่ (เช่น ผู้ใช้ปิดกล่องระหว่างส่ง) */
+  signal?: AbortSignal
 }
 
 /** เรียก API ของระบบกลาง คืนข้อมูลเมื่อ server ยืนยันสำเร็จเท่านั้น */
-export async function api<T>(path: string, { method = 'GET', body, idempotencyKey, quiet401 }: Options = {}): Promise<T> {
+export async function api<T>(path: string, { method = 'GET', body, idempotencyKey, quiet401, file, signal }: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (file) headers['Content-Type'] = file.type || 'application/octet-stream'
+  else if (body !== undefined) headers['Content-Type'] = 'application/json'
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
 
@@ -35,9 +40,12 @@ export async function api<T>(path: string, { method = 'GET', body, idempotencyKe
       headers,
       credentials: 'same-origin',
       cache: 'no-store',
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: file ?? (body === undefined ? undefined : JSON.stringify(body)),
+      signal,
     })
   } catch {
+    // ผู้เรียกยกเลิกเอง: ไม่ใช่ปัญหาการเชื่อมต่อ
+    if (signal?.aborted) throw new AppError('aborted', 0, 'ยกเลิกคำขอแล้ว')
     throw new AppError('network', 0, 'เชื่อมต่อระบบกลางไม่ได้ ตรวจการเชื่อมต่ออินเทอร์เน็ตแล้วลองอีกครั้ง')
   }
 

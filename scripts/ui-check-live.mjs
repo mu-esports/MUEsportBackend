@@ -129,12 +129,25 @@ try {
     (await appears(anon.getByRole('heading', { name: 'เข้าสู่ระบบ' }))) && anon.url().includes('/login?return=%2Fmembers'), anon.url())
   check('[จริง] หน้าเข้าสู่ระบบไม่แสดงข้อมูลหลังบ้านหรือเมนู',
     (await anon.locator('.sidebar, .nav-link, table').count()) === 0)
+  // ทีมงานเลือกช่องทาง Google ด้วยคำว่า google ในช่องชื่อผู้ใช้ (ไม่มีปุ่ม Google แยก) จุดเริ่มของ server ถูกตอบแทนด้วยหน้าเปล่า: ตรวจเฉพาะว่าหน้าเว็บไปที่ใด
+  const loginReady = (page) => page.waitForFunction(() => document.querySelector('.login-card button[type="submit"]')?.getAttribute('aria-disabled') !== 'true')
+  await anon.locator('#login-username').fill('Google')
   if (authConfigured) {
-    check('[จริง] หน้าเข้าสู่ระบบ: มีปุ่มเข้าสู่ระบบด้วย Google ชี้ไป /auth/login พร้อม return',
-      ((await anon.getByRole('link', { name: 'เข้าสู่ระบบด้วย Google' }).getAttribute('href')) ?? '').startsWith('/auth/login?return=%2Fmembers'))
+    let started = ''
+    await anon.route(`${BASE}/auth/login**`, (route) => {
+      started = route.request().url()
+      return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>oauth start (stub)</title><p id="stub-start">stub</p>' })
+    })
+    await loginReady(anon)
+    const separate = (await anon.getByRole('link', { name: /Google/ }).count()) + (await anon.getByRole('button', { name: /Google/ }).count())
+    await anon.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
+    await anon.locator('#stub-start').waitFor()
+    check('[จริง+stub จุดเริ่ม Google] หน้าเข้าสู่ระบบ: พิมพ์ google แล้วกดเข้าสู่ระบบ ไปเริ่มที่ /auth/login พร้อม return เดิม และไม่มีปุ่มหรือลิงก์ Google แยก',
+      started === `${BASE}/auth/login?return=%2Fmembers` && separate === 0, `${started} separate=${separate}`)
+    await anon.unroute(`${BASE}/auth/login**`)
   } else {
-    check('[จริง] ยังไม่ได้ตั้งค่า Google client: บอกตรง ๆ ว่ายังเข้าสู่ระบบไม่ได้ ไม่มีปุ่มหลอก',
-      (await anon.getByText('ยังเข้าสู่ระบบไม่ได้').isVisible()) && (await anon.getByRole('link', { name: 'เข้าสู่ระบบด้วย Google' }).count()) === 0)
+    check('[จริง] ยังไม่ได้ตั้งค่า Google client: ช่องทาง google บอกตรง ๆ ว่าทีมงานยังเข้าสู่ระบบไม่ได้ และปุ่มไปต่อไม่ได้',
+      (await appears(anon.getByText('ทีมงานยังเข้าสู่ระบบไม่ได้'))) && (await anon.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).getAttribute('aria-disabled')) === 'true')
     await shot(anon, 'live-login-not-configured-1440')
     await anon.goto(`${BASE}/auth/login`)
     check('[จริง] /auth/login วิ่งเข้า Worker แม้เปิด URL ตรง และไม่ส่งไป Google เมื่อยังไม่ได้ตั้งค่า',
@@ -158,13 +171,22 @@ try {
   // หน้าเข้าสู่ระบบเมื่อระบบตั้งค่าแล้ว (จำลองเฉพาะคำตอบ /api/session เพื่อดูหน้าจอ)
   for (const [w, h] of [[1440, 900], [390, 844], [320, 568]]) {
     const p = await newPage(w, h)
-    await p.route('**/api/session', (route) => route.fulfill({ json: { authConfigured: true, user: null, csrfToken: null } }))
+    await p.route('**/api/session', (route) => route.fulfill({ json: { authConfigured: true, user: null, member: null, csrfToken: null } }))
+    let started = ''
+    await p.route(`${BASE}/auth/login**`, (route) => {
+      started = route.request().url()
+      return route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>oauth start (stub)</title><p id="stub-start">stub</p>' })
+    })
     await p.goto(`${BASE}/login?return=%2Fdocuments`)
-    const button = p.getByRole('link', { name: 'เข้าสู่ระบบด้วย Google' })
-    check(`[จำลอง session] หน้าเข้าสู่ระบบ ${w}px: ปุ่มเข้าสู่ระบบแตะได้ ≥44px และไม่ล้นจอ`,
-      (await appears(button)) && (await button.boundingBox()).height >= 44 && (await noOverflow(p)) &&
-      (await button.getAttribute('href')) === '/auth/login?return=%2Fdocuments')
+    const button = p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true })
+    await p.locator('#login-username').fill('google')
+    await p.locator('.login-google').getByText('ไม่ต้องกรอกรหัสผ่าน').waitFor()
+    const fits = (await button.boundingBox()).height >= 44 && (await noOverflow(p)) && (await p.locator('#login-password').count()) === 0
     await shot(p, `live-login-${w}`)
+    await button.click()
+    await p.locator('#stub-start').waitFor()
+    check(`[จำลอง session+stub จุดเริ่ม Google] หน้าเข้าสู่ระบบ ${w}px ช่องทาง google: ปุ่มเข้าสู่ระบบแตะได้ ≥44px ไม่ล้นจอ ไม่มีช่องรหัสผ่าน และไปเริ่มที่ /auth/login พร้อม return`,
+      fits && started === `${BASE}/auth/login?return=%2Fdocuments`, started)
     if (w === 390) {
       await p.goto(`${BASE}/access-denied`)
       check('[จริง] หน้าปฏิเสธการเข้าถึง: บอกว่าล็อกอิน Google สำเร็จแต่ไม่มีสิทธิ์ และมีทางเข้าด้วยบัญชีอื่น',

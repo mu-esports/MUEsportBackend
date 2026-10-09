@@ -1,4 +1,5 @@
 import { handleMemberSelf } from './accounts'
+import { handleAthletes } from './athletes'
 import { handleAuth, startConnect } from './auth'
 import { handleDocuments } from './documents'
 import type { AppEnv, Ctx } from './env'
@@ -30,6 +31,7 @@ async function handleApi(ctx: Ctx): Promise<Response> {
 
   let response: Response | null = null
   if (resource === 'members') response = await handleMembers(ctx, rest)
+  else if (resource === 'athletes') response = await handleAthletes(ctx, rest)
   else if (resource === 'member') response = await handleMemberSelf(ctx, rest)
   else if (resource === 'library') response = await handleLibrary(ctx, rest)
   else if (resource === 'events') response = await handleEvents(ctx, rest)

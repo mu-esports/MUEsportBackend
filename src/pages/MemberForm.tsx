@@ -7,6 +7,7 @@ import { AppError, hasCode, isUnconfirmed, messageOf } from '../data/errors'
 import { useStore } from '../data/store'
 import { ROLE_LABELS, ROLES, STATUS_LABELS, STATUSES, STUDENT_ID_PATTERN } from '../data/types'
 import type { Member, MemberInput } from '../data/types'
+import { isGoogleLoginWord } from '../lib/student-id'
 import { SuspendConfirm } from './SuspendConfirm'
 
 type Errors = Partial<Record<'name' | 'nickname' | 'studentId', string>>
@@ -23,6 +24,7 @@ function validate(v: MemberInput): Errors {
   else if (v.nickname.trim().length > 40) errors.nickname = 'ชื่อเล่นยาวได้ไม่เกิน 40 ตัวอักษร'
   // ว่างได้ (ยังไม่ได้กรอก) ถ้ากรอกต้องถูกรูปแบบ เก็บเป็นข้อความตามที่พิมพ์ ไม่แปลงเป็นตัวเลข
   if (v.studentId.trim() && !STUDENT_ID_PATTERN.test(v.studentId.trim())) errors.studentId = STUDENT_ID_RULE
+  else if (isGoogleLoginWord(v.studentId)) errors.studentId = 'รหัสนักศึกษาใช้คำว่า google ไม่ได้ เพราะเป็นคำที่ทีมงานใช้เลือกเข้าสู่ระบบด้วย Google'
   return errors
 }
 
@@ -33,7 +35,8 @@ const toInput = (m: Member): MemberInput => ({
 interface Props {
   member?: Member
   onClose(): void
-  onSaved(message: string): void
+  /** บันทึกสำเร็จ: ข้อความแจ้งผล และข้อมูลสมาชิกที่ระบบยืนยันแล้ว */
+  onSaved(message: string, saved: Member): void
 }
 
 export function MemberForm({ member, onClose, onSaved }: Props) {
@@ -96,14 +99,14 @@ export function MemberForm({ member, onClose, onSaved }: Props) {
     setSubmitError('')
     setConflict(null)
     try {
-      if (base) await updateMember(base.id, input, base.version)
-      else await addMember(input, createKey(input))
+      const saved = base ? await updateMember(base.id, input, base.version) : await addMember(input, createKey(input))
       onSaved(
         !member
           ? `เพิ่มสมาชิก “${input.name}” แล้ว`
           : suspending
             ? `บันทึกการแก้ไขและพักการใช้งาน “${input.name}” แล้ว`
             : `บันทึกการแก้ไข “${input.name}” แล้ว`,
+        saved,
       )
     } catch (error) {
       setPendingSuspend(null)

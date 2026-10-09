@@ -3,6 +3,7 @@ import type { MemberAccountRow } from './accounts'
 import { nowIso } from './env'
 import type { AppEnv, Ctx } from './env'
 import { HttpError, json, readJson } from './http'
+import { handleMemberPhoto } from './photos'
 import { requireMutation, requireUser } from './session'
 import { appendMember, updateMemberRow } from './sheets'
 import type { SheetConfig } from './sheets'
@@ -39,6 +40,10 @@ const toMember = (row: MemberRow) => ({
   sourceState: row.source_state,
   // สถานะบัญชีเข้าสู่ระบบของสมาชิก ไม่มี hash, salt หรือรหัสผ่านในคำตอบใด
   account: accountSummary(row),
+  // รุ่นของรูปโปรไฟล์ (null = ไม่มีรูป) ตัวรูปอ่านจาก /api/members/:id/photo ไม่อยู่ในรายชื่อ
+  photoVersion: row.photo_version,
+  // โปรไฟล์นักกีฬาของคนนี้ (null = ไม่ได้เป็นนักกีฬา) เป็นข้อมูลประกอบ ไม่ใช่สิทธิ์ของระบบ
+  athlete: row.athlete_game === null ? null : { game: row.athlete_game, status: row.athlete_status },
 })
 
 function parseInput(body: Record<string, unknown>) {
@@ -286,6 +291,7 @@ export async function handleMembers(ctx: Ctx, parts: string[]): Promise<Response
   }
   if (parts.length === 1 && method === 'PATCH') return update(ctx, parts[0])
   if (parts.length === 2 && parts[1] === 'status' && method === 'POST') return setStatus(ctx, parts[0])
-  if (parts.length === 3 && parts[1] === 'account') return handleMemberAccount(ctx, parts[0], parts[2])
+  if (parts.length === 2 && parts[1] === 'photo') return handleMemberPhoto(ctx, parts[0])
+  if ((parts.length === 2 || parts.length === 3) && parts[1] === 'account') return handleMemberAccount(ctx, parts[0], parts[2])
   return null
 }

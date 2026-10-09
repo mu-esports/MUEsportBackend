@@ -12,6 +12,14 @@ export const accountsApi = {
   disable: (memberId: string) => api<{ account: MemberAccount }>(path(memberId, 'disable'), { method: 'POST', body: {} }),
   /** ยืนยันให้บัญชีใช้รหัสนักศึกษาปัจจุบันในทะเบียนเป็นรหัสเข้าสู่ระบบ */
   confirmLoginId: (memberId: string, studentId: string) => api<{ account: MemberAccount }>(path(memberId, 'login-id'), { method: 'POST', body: { studentId } }),
+  /**
+   * ลบบัญชีเข้าสู่ระบบ (ทะเบียนสมาชิกยังอยู่) expectedRevision = รุ่นของบัญชีที่ผู้ดูแลเห็นในกล่องยืนยัน
+   * deleted: false = ไม่มีบัญชีให้ลบแล้ว (เช่น ถูกลบไปก่อนหน้า)
+   */
+  remove: (memberId: string, expectedRevision: string) =>
+    api<{ account: MemberAccount; deleted: boolean }>(path(memberId, 'delete'), { method: 'POST', body: { expectedRevision } }),
+  /** สถานะล่าสุดของบัญชีจาก server ใช้ตรวจผลจริงเมื่อคำสั่งก่อนหน้าไม่ได้คำตอบ */
+  status: async (memberId: string) => (await api<{ account: MemberAccount }>(`/api/members/${encodeURIComponent(memberId)}/account`)).account,
 }
 
 export const MIN_PASSWORD_LENGTH = 10

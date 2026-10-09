@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CircleCheck, CirclePause, KeyRound, LoaderCircle, Pencil, TriangleAlert, UserRound } from 'lucide-react'
+import { useAuth } from '../auth/AuthProvider'
+import { Avatar } from '../components/Avatar'
 import { useToast } from '../components/Toast'
 import { Field, fieldAria } from '../components/ui'
 import { hasCode, messageOf } from '../data/errors'
@@ -13,6 +15,7 @@ import { PasswordForm } from './PasswordForm'
 /** บัญชีของฉัน: ข้อมูลของตัวเองเท่านั้น แก้ได้เฉพาะช่องทางติดต่อและรหัสผ่าน ชื่อ รหัสนักศึกษา และสถานะแก้โดยทีมงาน */
 export function MemberAccountPage() {
   const toast = useToast()
+  const { member } = useAuth()
   const [me, setMe] = useState<MemberSelf | null>(null)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -121,6 +124,13 @@ export function MemberAccountPage() {
               ข้อมูลของฉัน
             </h2>
           </div>
+          {/* รูปของตัวเองเท่านั้น (server ส่งรูปให้เฉพาะเจ้าของและทีมงาน) สมาชิกยังเปลี่ยนรูปเองไม่ได้ */}
+          {member && (
+            <div className="m-profile-photo">
+              <Avatar memberId={member.id} version={me.photoVersion} name={me.nickname || me.name} size="xl" label={me.photoVersion ? 'รูปโปรไฟล์ของคุณ' : 'ยังไม่มีรูปโปรไฟล์'} />
+              <p className="field-hint">{me.photoVersion ? 'รูปโปรไฟล์ของคุณ ถ้าต้องการเปลี่ยนให้แจ้งทีมงาน' : 'ยังไม่มีรูปโปรไฟล์ ทีมงานเป็นผู้เพิ่มรูปให้'}</p>
+            </div>
+          )}
           <dl className="m-profile">
             <div>
               <dt>ชื่อ</dt>

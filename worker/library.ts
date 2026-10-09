@@ -339,18 +339,34 @@ type FileType = (typeof FILE_TYPES)[number]
 type SortKey = 'modified' | 'name'
 
 const quote = (value: string) => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-const anyOf = (mimes: string[]) => `(${mimes.map((m) => `mimeType = ${quote(m)}`).join(' or ')})`
 
-/** คำค้นของ Drive สร้างที่ server จากตัวเลือกที่กำหนดไว้เท่านั้น ไม่รับคำค้นดิบจากเบราว์เซอร์ */
+const NAMED_TYPES: Partial<Record<FileType, string>> = { doc: MIME.doc, sheet: MIME.sheet, slides: MIME.slides, form: MIME.form, pdf: MIME.pdf }
+
+/** ชนิดจริงของไฟล์ (หรือของไฟล์ปลายทางเมื่อเป็นทางลัด) อยู่ในหมวดนี้หรือไม่ ตัดสินจาก MIME type เท่านั้น ไม่ดูชื่อหรือนามสกุลไฟล์ */
+export function inType(mimeType: string, type: FileType): boolean {
+  if (type === 'all') return true
+  if (NAMED_TYPES[type]) return mimeType === NAMED_TYPES[type]
+  if (type === 'image') return mimeType.startsWith('image/')
+  if (type === 'office') return OFFICE_MIMES.includes(mimeType)
+  // other = ไม่อยู่ในหมวดใดข้างต้น
+  return !Object.values(NAMED_TYPES).includes(mimeType) && !OFFICE_MIMES.includes(mimeType) && !mimeType.startsWith('image/') && mimeType !== MIME.folder
+}
+
+/**
+ * คำค้นของ Drive สร้างที่ server จากตัวเลือกที่กำหนดไว้เท่านั้น ไม่รับคำค้นดิบจากเบราว์เซอร์
+ * หมวดประเภทขอ "ไฟล์ชนิดนั้น หรือทางลัด" จาก Google: Drive ค้นตามชนิดของไฟล์ปลายทางของทางลัดไม่ได้
+ * ทางลัดที่ปลายทางไม่ใช่ชนิดของหมวดจึงถูกคัดออกที่ server หลังได้ผล (ดู fetchList) ไม่ได้คัดในเบราว์เซอร์
+ */
 export function buildQuery(search: string, type: FileType): string {
   // ไม่แสดงไฟล์ในถังขยะ และไม่แสดงโฟลเดอร์เป็นรายการไฟล์ (ชื่อโฟลเดอร์ของแต่ละไฟล์แสดงประกอบแทน)
   const parts = ['trashed = false', `mimeType != ${quote(MIME.folder)}`]
   if (search) parts.push(`name contains ${quote(search)}`)
-  const named: Partial<Record<FileType, string>> = { doc: MIME.doc, sheet: MIME.sheet, slides: MIME.slides, form: MIME.form, pdf: MIME.pdf }
-  if (named[type]) parts.push(`mimeType = ${quote(named[type]!)}`)
-  else if (type === 'image') parts.push(`mimeType contains 'image/'`)
-  else if (type === 'office') parts.push(anyOf(OFFICE_MIMES))
+  const shortcut = `mimeType = ${quote(MIME.shortcut)}`
+  if (NAMED_TYPES[type]) parts.push(`(mimeType = ${quote(NAMED_TYPES[type]!)} or ${shortcut})`)
+  else if (type === 'image') parts.push(`(mimeType contains 'image/' or ${shortcut})`)
+  else if (type === 'office') parts.push(`(${OFFICE_MIMES.map((m) => `mimeType = ${quote(m)}`).join(' or ')} or ${shortcut})`)
   else if (type === 'other') {
+    // ทางลัดไม่ถูกตัดออกด้วยเงื่อนไขด้านล่างอยู่แล้ว (ชนิดของตัวทางลัดเองไม่อยู่ในรายการ)
     for (const mime of [MIME.doc, MIME.sheet, MIME.slides, MIME.form, MIME.pdf, ...OFFICE_MIMES]) parts.push(`mimeType != ${quote(mime)}`)
     parts.push(`not mimeType contains 'image/'`)
   }
@@ -436,8 +452,14 @@ interface ListBody {
   incomplete: boolean
 }
 
+/**
+ * จำนวนหน้าของ Google ที่ถามต่อได้ในคำขอเดียว เมื่อหน้าที่ได้มีแต่ทางลัดไปยังไฟล์ชนิดอื่น (ถูกคัดออกหมด)
+ * ครบจำนวนแล้วยังไม่พบ: ตอบรายการว่างพร้อม nextPageToken เพื่อให้หน้าเว็บบอกว่ายังค้นไม่จบ ไม่ใช่ "ไม่มีไฟล์"
+ */
+const MAX_FILTER_PAGES = 3
+
 async function fetchList(env: AppEnv, params: ListParams): Promise<ListBody> {
-  const gapi = makeGapi(env, 2 + MAX_FOLDER_LOOKUPS)
+  const gapi = makeGapi(env, 1 + MAX_FILTER_PAGES + MAX_FOLDER_LOOKUPS)
   const query = new URLSearchParams({
     q: buildQuery(params.search, params.type),
     orderBy: params.sort === 'name' ? 'name_natural' : 'modifiedTime desc',
@@ -449,15 +471,28 @@ async function fetchList(env: AppEnv, params: ListParams): Promise<ListBody> {
     supportsAllDrives: 'true',
     includeItemsFromAllDrives: 'true',
   })
-  if (params.pageToken) query.set('pageToken', params.pageToken)
-  const data = await gapi.json<{ files?: DriveFile[]; nextPageToken?: string; incompleteSearch?: boolean }>(`${DRIVE_FILES}?${query}`)
-  if (!Array.isArray(data.files)) throw new GoogleApiError(502, 'malformed_list')
-  const files = data.files.filter((f) => typeof f.id === 'string' && f.trashed !== true && f.mimeType !== MIME.folder)
+  let pageToken = params.pageToken
+  let files: DriveFile[] = []
+  let incomplete = false
+  for (let page = 0; page < MAX_FILTER_PAGES; page++) {
+    if (pageToken) query.set('pageToken', pageToken)
+    const data = await gapi.json<{ files?: DriveFile[]; nextPageToken?: string; incompleteSearch?: boolean }>(`${DRIVE_FILES}?${query}`)
+    if (!Array.isArray(data.files)) throw new GoogleApiError(502, 'malformed_list')
+    // ชนิดของหมวดตัดสินจาก MIME type จริง: ไฟล์ปกติใช้ชนิดของตัวเอง ทางลัดใช้ชนิดของไฟล์ปลายทาง
+    files = data.files.filter(
+      (f) => typeof f.id === 'string' && f.trashed !== true && f.mimeType !== MIME.folder &&
+        inType(f.mimeType === MIME.shortcut ? (f.shortcutDetails?.targetMimeType ?? '') : (f.mimeType ?? ''), params.type),
+    )
+    incomplete = incomplete || data.incompleteSearch === true
+    pageToken = typeof data.nextPageToken === 'string' && data.nextPageToken ? data.nextPageToken : ''
+    // ได้ไฟล์ของหมวดนี้แล้ว หรือ Google ไม่มีหน้าถัดไป: จบ ไม่ไล่ดึงทั้งบัญชี
+    if (files.length > 0 || !pageToken) break
+  }
   const folders = await folderNames(env, gapi, files).catch(() => new Map<string, string | null>())
   return {
     files: files.map((file) => toItem(file, folders.get(file.parents?.[0] ?? '') ?? null)),
-    nextPageToken: typeof data.nextPageToken === 'string' && data.nextPageToken ? data.nextPageToken : null,
-    incomplete: data.incompleteSearch === true,
+    nextPageToken: pageToken || null,
+    incomplete,
   }
 }
 
@@ -472,7 +507,8 @@ async function list(ctx: Ctx): Promise<Response> {
   await requireEnabled(ctx.env, session)
   const params = listParams(ctx.url)
   const fresh = ctx.url.searchParams.get('fresh') === '1'
-  const key = `list:v2:${await sha256Hex(JSON.stringify(params))}`
+  // v3: หมวดประเภทรวมทางลัดตามชนิดของไฟล์ปลายทาง (สำเนาของรุ่นก่อนไม่มีทางลัดในหมวด จึงไม่นำมาใช้)
+  const key = `list:v3:${await sha256Hex(JSON.stringify(params))}`
   const cached = await readCache(ctx.env, key)
   const age = cached ? Date.now() - Date.parse(cached.fetched_at) : Infinity
   const reply = (body: ListBody, fetchedAt: string, extra: Record<string, unknown> = {}) => json({ ...body, fetchedAt, pageSize: params.limit, stale: false, ...extra })

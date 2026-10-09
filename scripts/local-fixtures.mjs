@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { argon2id } from '@noble/hashes/argon2.js'
 
 const TABLES = [
-  'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
+  'athletes', 'member_photos', 'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
   'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',
   'idempotency_keys', 'events', 'members', 'oauth_states', 'sessions', 'users',
@@ -35,7 +35,8 @@ export function passwordHash(password) {
  * @param {string} stateDir โฟลเดอร์เก็บ D1 local ของชุดทดสอบ (แยกจากของการพัฒนา)
  * @param {{ key: string, email: string, role: 'staff' | 'admin', name?: string, sessions?: number }[]} users
  * @param {{ key: string, name: string, nickname?: string, studentId?: string, role?: string, status?: string, contact?: string, note?: string,
- *           password?: string, mustChange?: boolean, accountStatus?: 'active' | 'disabled', sessions?: number }[]} members
+ *           password?: string, mustChange?: boolean, accountStatus?: 'active' | 'disabled', sessions?: number,
+ *           athlete?: { game: string, team?: string, position?: string, ign?: string, status?: 'active' | 'inactive', note?: string } }[]} members
  *        password มีค่า = เปิดบัญชีให้ด้วยรหัสผ่านนี้; sessions = จำนวน session ของสมาชิกที่สร้างไว้ล่วงหน้า
  * @returns {Record<string, { id: string, email?: string, studentId?: string, tokens: string[] }>}
  */
@@ -75,9 +76,9 @@ export function prepareLocalDatabase(stateDir, users, members = []) {
     )
     if (member.password) {
       statements.push(
-        `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at) VALUES (${[
+        `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at, revision) VALUES (${[
           id, studentId, passwordHash(member.password), member.accountStatus ?? 'active',
-        ].map(quote).join(', ')}, ${member.mustChange ? 1 : 0}, ${quote(now)}, 'fixture', 'fixture', ${quote(now)}, ${quote(now)});`,
+        ].map(quote).join(', ')}, ${member.mustChange ? 1 : 0}, ${quote(now)}, 'fixture', 'fixture', ${quote(now)}, ${quote(now)}, ${quote(randomBytes(12).toString('hex'))});`,
       )
       for (let i = 0; i < (member.sessions ?? 0); i++) {
         // token ของสมาชิกขึ้นต้นด้วย m. เหมือนที่ Worker ออกให้
@@ -86,6 +87,14 @@ export function prepareLocalDatabase(stateDir, users, members = []) {
         const hash = createHash('sha256').update(token).digest('hex')
         statements.push(`INSERT INTO member_sessions (token_hash, member_id, created_at, expires_at) VALUES (${[hash, id, now, expires].map(quote).join(', ')});`)
       }
+    }
+    if (member.athlete) {
+      const a = member.athlete
+      statements.push(
+        `INSERT INTO athletes (member_id, game, team, position, ign, status, note, version, created_by, updated_by, created_at, updated_at) VALUES (${[
+          id, a.game, a.team ?? '', a.position ?? '', a.ign ?? '', a.status ?? 'active', a.note ?? '',
+        ].map(quote).join(', ')}, 1, 'fixture', 'fixture', ${quote(now)}, ${quote(now)});`,
+      )
     }
     out[member.key] = { id, studentId, tokens }
   }

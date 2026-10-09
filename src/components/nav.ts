@@ -1,4 +1,4 @@
-import { CalendarDays, ClipboardList, Database, FolderOpen, LayoutDashboard, ShieldCheck, Users } from 'lucide-react'
+import { CalendarDays, ClipboardList, Database, FolderOpen, LayoutDashboard, ShieldCheck, Swords, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { IS_DEMO } from '../mode'
@@ -26,6 +26,7 @@ export const inNav = (item: NavItem, pathname: string) =>
 export const NAV: NavItem[] = [
   { to: '/', label: 'ภาพรวม', icon: LayoutDashboard },
   { to: '/members', label: 'สมาชิก', icon: Users, shortcut: 'สมาชิก' },
+  { to: '/athletes', label: 'นักกีฬา', icon: Swords, liveOnly: true },
   { to: '/calendar', label: 'ปฏิทิน', icon: CalendarDays, shortcut: 'ปฏิทินชมรม' },
   { to: '/files', label: 'ไฟล์ชมรม', icon: FolderOpen, liveOnly: true, shortcut: 'ไฟล์ชมรม', also: ['/documents'] },
   { to: '/forms', label: 'ฟอร์ม', icon: ClipboardList, liveOnly: true },

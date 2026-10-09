@@ -79,9 +79,14 @@ function matches(file: FakeFile, q: string): boolean {
     } else if (part === `not mimeType contains 'image/'`) {
       if (mime.startsWith('image/')) return false
     } else if (part.startsWith('(') && part.endsWith(')')) {
-      const options = part.slice(1, -1).split(' or ').map((o) => /^mimeType = '(.*)'$/.exec(o)?.[1])
+      // กลุ่ม "ชนิดใดชนิดหนึ่ง": mimeType = '...' หรือ mimeType contains 'image/' (ใช้กับหมวดประเภทที่รวมทางลัด)
+      const options = part.slice(1, -1).split(' or ').map((o) => {
+        if (o === `mimeType contains 'image/'`) return (value: string) => value.startsWith('image/')
+        const exact = /^mimeType = '(.*)'$/.exec(o)?.[1]
+        return exact === undefined ? undefined : (value: string) => value === exact
+      })
       if (options.some((o) => o === undefined)) throw new Error(`fake drive: unsupported query part ${part}`)
-      if (!options.includes(mime)) return false
+      if (!options.some((test) => test!(mime))) return false
     } else {
       throw new Error(`fake drive: unsupported query part ${part}`)
     }

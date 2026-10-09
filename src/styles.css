@@ -1440,3 +1440,84 @@ input[aria-invalid='true'], textarea[aria-invalid='true'], select[aria-invalid='
   .resource-row { flex-direction: column; gap: 8px; }
   .response-actions .button, .form-item > .button { flex: 1 1 auto; }
 }
+
+/* ---------- รูปโปรไฟล์ ---------- */
+/* ขนาดคงที่ทุกสถานะ (มีรูป ไม่มีรูป กำลังโหลด) หน้าเว็บจึงไม่เลื่อนตอนรูปมา รูปถูกครอบให้เต็มวงกลมโดยไม่บิดสัดส่วน */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-weight: 600;
+  line-height: 1;
+  user-select: none;
+}
+.avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.avatar svg { width: 55%; height: 55%; }
+.avatar-sm { width: 32px; height: 32px; font-size: 0.875rem; }
+.avatar-md { width: 40px; height: 40px; font-size: 1.0625rem; }
+.avatar-lg { width: 56px; height: 56px; font-size: 1.5rem; }
+.avatar-xl { width: 96px; height: 96px; font-size: 2.5rem; }
+
+.member-cell { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.member-cell-text { display: block; min-width: 0; overflow-wrap: anywhere; }
+
+/* รูปและปุ่มจัดการรูปในรายละเอียดของบุคคล */
+.person-head { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.person-head-actions { display: grid; gap: 6px; justify-items: start; min-width: 0; }
+.person-head-actions .notice { margin: 0; }
+
+.photo-editor { display: grid; gap: 12px; }
+.photo-preview { display: grid; justify-items: center; gap: 8px; padding: 4px 0; }
+.photo-preview .avatar-xl { width: 160px; height: 160px; font-size: 4rem; }
+.photo-status { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; color: var(--text-muted); font-size: 0.9375rem; }
+.photo-actions { justify-content: center; }
+
+/* ---------- นักกีฬา ---------- */
+.roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.roster-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.roster-main { display: grid; gap: 2px; min-width: 0; }
+/* ชื่อยาวตัดที่สองบรรทัด ชื่อเต็มอยู่ใน title และในรายละเอียด */
+.roster-name {
+  display: -webkit-box;
+  overflow: hidden;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+.roster-nickname { color: var(--text-muted); font-size: 0.875rem; overflow-wrap: anywhere; }
+.roster-game { display: flex; align-items: flex-start; gap: 6px; font-size: 0.9375rem; overflow-wrap: anywhere; }
+.roster-game svg { flex: none; margin-top: 4px; color: var(--text-muted); }
+.roster-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.roster-open { grid-column: 1 / -1; justify-self: end; }
+
+.athlete-person { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.athlete-person legend { padding: 0 6px; font-weight: 600; }
+.athlete-person .notice { margin: 0; }
+.athlete-person > .button { justify-self: start; }
+.athlete-identity { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.athlete-identity > div { min-width: 0; }
+.athlete-identity-name { font-weight: 600; }
+
+/* ลบบัญชีเข้าสู่ระบบ: แยกจากปุ่มจัดการบัญชีทั่วไปด้วยเส้นคั่นและคำอธิบาย */
+.account-delete { display: grid; gap: 8px; justify-items: start; padding-top: 12px; border-top: 1px dashed var(--border-strong); }
+
+@media (max-width: 767px) {
+  .person-head { align-items: flex-start; }
+  .roster-open { justify-self: stretch; }
+  .photo-actions .button { flex: 1 1 auto; }
+}

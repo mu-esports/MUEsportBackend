@@ -15,6 +15,8 @@ export interface MemberSelf {
   contactEditable: boolean
   /** เวลาที่สมาชิกเปลี่ยนรหัสผ่านเองครั้งล่าสุด (null = ยังใช้รหัสที่ทีมงานตั้ง) */
   passwordChangedAt: string | null
+  /** รุ่นของรูปโปรไฟล์ของตัวเอง (null = ยังไม่มีรูป) */
+  photoVersion: string | null
 }
 
 export interface MemberEvent {

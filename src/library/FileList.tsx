@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
-  ClipboardList, CornerUpRight, File, FileSpreadsheet, FileText, Film, Folder, Image, LayoutGrid, List, LoaderCircle, Music, Presentation, RefreshCw, Search, SearchX, Share2, TriangleAlert,
+  ClipboardList, CornerUpRight, File, Files, FileSpreadsheet, FileText, Film, Folder, Image, LayoutGrid, List, LoaderCircle, Music, Presentation, RefreshCw, Search, SearchX, Share2, TriangleAlert,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { AppError, messageOf } from '../data/errors'
@@ -23,9 +23,27 @@ export const KIND_ICONS: Record<FileKind, LucideIcon> = {
 
 const TYPES = TYPE_OPTIONS.map((option) => option.value)
 
+/** หมวดที่แสดงเป็นปุ่มด้านบนของคลัง: ใช้ตัวกรองประเภทเดียวกับช่อง “ประเภท” และเก็บใน URL (?type=doc) เหมือนกัน */
+const CATEGORIES: { type: FileType; label: string; icon: LucideIcon }[] = [
+  { type: 'all', label: 'ทั้งหมด', icon: Files },
+  { type: 'doc', label: 'Google Docs', icon: FileText },
+  { type: 'sheet', label: 'Google Sheets', icon: FileSpreadsheet },
+  { type: 'form', label: 'Google Forms', icon: ClipboardList },
+]
+
 function queryOf(params: URLSearchParams): ListQuery {
   const type = params.get('type') as FileType | null
   return { q: params.get('q') ?? '', type: type && TYPES.includes(type) ? type : 'all', sort: params.get('sort') === 'name' ? 'name' : 'modified' }
+}
+
+/** ส่วน query ของ URL จากตัวเลือกของรายการ (ค่าเริ่มต้นไม่ใส่ใน URL) */
+function searchOf(query: ListQuery): string {
+  const out = new URLSearchParams()
+  if (query.q.trim()) out.set('q', query.q.trim())
+  if (query.type !== 'all') out.set('type', query.type)
+  if (query.sort !== 'modified') out.set('sort', query.sort)
+  const text = out.toString()
+  return text ? `?${text}` : ''
 }
 
 type View =
@@ -40,10 +58,12 @@ interface Props {
   basePath: string
   /** ส่วนที่แสดงแทนรายการเมื่อคลังยังไม่พร้อม (ฝั่งทีมงานใส่ปุ่มเปิดใช้คลัง) */
   unavailable?(info: { message: string; reason: string }): ReactNode
+  /** คำอธิบายเพิ่มของหมวดที่เลือกอยู่ (ฝั่งทีมงานใช้แยก “ไฟล์ Google Forms” ออกจากหน้าเครื่องมือฟอร์ม) */
+  categoryNote?(type: FileType): ReactNode
 }
 
 /** รายการไฟล์ของคลังชมรม ใช้ร่วมกันทั้งหน้าทีมงานและหน้าสมาชิก: ค้นหา กรองประเภท เรียง โหลดเพิ่มทีละหน้า และรีเฟรช */
-export function FileList({ basePath, unavailable }: Props) {
+export function FileList({ basePath, unavailable, categoryNote }: Props) {
   const { user, member } = useAuth()
   const viewer = user ? `staff:${user.id}` : member ? `member:${member.id}` : ''
   if (snapshotViewer !== viewer) { snapshots.clear(); snapshotViewer = viewer }
@@ -118,12 +138,7 @@ export function FileList({ basePath, unavailable }: Props) {
   useEffect(() => setText(query.q), [query.q])
 
   const apply = (next: Partial<ListQuery>) => {
-    const merged = { ...query, ...next }
-    const out = new URLSearchParams()
-    if (merged.q.trim()) out.set('q', merged.q.trim())
-    if (merged.type !== 'all') out.set('type', merged.type)
-    if (merged.sort !== 'modified') out.set('sort', merged.sort)
-    setParams(out, { replace: true })
+    setParams(new URLSearchParams(searchOf({ ...query, ...next })), { replace: true })
   }
 
   const submit = (event: FormEvent) => {
@@ -158,11 +173,31 @@ export function FileList({ basePath, unavailable }: Props) {
   }
 
   const filtered = query.q.trim() !== '' || query.type !== 'all'
+  // เลือกเฉพาะประเภท (ไม่มีคำค้น): ข้อความเมื่อไม่มีไฟล์บอกชื่อประเภทนั้นตรง ๆ
+  const typeOnly = query.q.trim() === '' && query.type !== 'all'
+  const typeLabel = TYPE_OPTIONS.find((option) => option.value === query.type)?.label ?? ''
   // URL/ตัวกรองเปลี่ยนก่อน effect โหลดข้อมูล: อย่าแสดงผลเก่าราวกับเป็นผลของเงื่อนไขใหม่
   const shownView: View = viewKey === key ? view : { kind: 'loading' }
+  const note = categoryNote?.(query.type)
 
   return (
     <div className="file-library">
+      {/* หมวดเป็นลิงก์ที่เปลี่ยนเฉพาะ ?type= ของหน้านี้: เปิดซ้ำหรือส่งลิงก์แล้วอยู่หมวดเดิม คำค้นและการเรียงที่เลือกไว้ยังอยู่ */}
+      <nav className="file-categories" aria-label="หมวดไฟล์">
+        {CATEGORIES.map(({ type, label, icon: Icon }) => (
+          <Link
+            key={type}
+            to={{ search: searchOf({ ...query, q: text, type }) }}
+            replace
+            className={`file-category${query.type === type ? ' active' : ''}`}
+            aria-current={query.type === type ? 'true' : undefined}
+          >
+            <Icon aria-hidden="true" size={18} />
+            <span>{label}</span>
+          </Link>
+        ))}
+      </nav>
+      {note}
       <form className="file-toolbar" role="search" onSubmit={submit}>
         <div className="file-search">
           <div className="search-field">
@@ -237,7 +272,9 @@ export function FileList({ basePath, unavailable }: Props) {
           <div className="file-status">
             <p className="result-count" role="status">
               {files.length === 0
-                ? 'ไม่มีไฟล์ที่จะแสดง'
+                ? meta.nextPageToken
+                  ? 'ยังไม่พบไฟล์ในช่วงที่ตรวจ ยังมีรายการให้ตรวจต่อ'
+                  : 'ไม่มีไฟล์ที่จะแสดง'
                 : meta.nextPageToken
                   ? `แสดง ${files.length} ไฟล์แรก ยังมีไฟล์อีก`
                   : `แสดงครบ ${files.length} ไฟล์${filtered ? 'ที่ตรงกับเงื่อนไข' : ''}`}
@@ -265,16 +302,27 @@ export function FileList({ basePath, unavailable }: Props) {
             </p>
           )}
 
-          {files.length === 0 ? (
+          {files.length === 0 && meta.nextPageToken ? (
+            // Google ยังมีรายการให้ตรวจต่อ: ยังสรุปไม่ได้ว่าไม่มีไฟล์ ให้โหลดชุดถัดไปด้วยปุ่มด้านล่าง
+            <div className="empty-state file-pending">
+              <Search aria-hidden="true" size={28} />
+              <p className="empty-state-title">ยังไม่พบไฟล์ที่ตรงกับเงื่อนไขในช่วงแรกของรายการ</p>
+              <p className="empty-state-text">รายการของ Google ยังมีต่อ กด “โหลดไฟล์เพิ่ม” เพื่อค้นในชุดถัดไป</p>
+            </div>
+          ) : files.length === 0 ? (
             <div className="empty-state">
               <SearchX aria-hidden="true" size={28} />
-              <p className="empty-state-title">{filtered ? 'ไม่พบไฟล์ที่ตรงกับเงื่อนไข' : 'ยังไม่มีไฟล์ในคลัง'}</p>
+              <p className="empty-state-title">{typeOnly ? `ยังไม่มีไฟล์ ${typeLabel} ในคลัง` : filtered ? 'ไม่พบไฟล์ที่ตรงกับเงื่อนไข' : 'ยังไม่มีไฟล์ในคลัง'}</p>
               <p className="empty-state-text">
-                {filtered ? 'ลองเปลี่ยนคำค้นหาหรือประเภทไฟล์ (การค้นหาดูจากชื่อไฟล์)' : 'เมื่อมีไฟล์ในบัญชี Google ของชมรม หรือมีคนแชร์ไฟล์ให้บัญชีชมรม ไฟล์จะแสดงที่นี่'}
+                {typeOnly
+                  ? `หมวดนี้แสดงไฟล์ ${typeLabel} ทุกไฟล์ที่บัญชี Google ของชมรมเข้าถึงได้ รวมไฟล์ที่ถูกแชร์มา ตอนนี้ยังไม่มีไฟล์ประเภทนี้`
+                  : filtered
+                    ? 'ลองเปลี่ยนคำค้นหาหรือประเภทไฟล์ (การค้นหาดูจากชื่อไฟล์)'
+                    : 'เมื่อมีไฟล์ในบัญชี Google ของชมรม หรือมีคนแชร์ไฟล์ให้บัญชีชมรม ไฟล์จะแสดงที่นี่'}
               </p>
               {filtered && (
                 <button type="button" className="button" onClick={() => apply({ q: '', type: 'all' })}>
-                  ล้างตัวกรอง
+                  {typeOnly ? 'ดูไฟล์ทั้งหมด' : 'ล้างตัวกรอง'}
                 </button>
               )}
             </div>

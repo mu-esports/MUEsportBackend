@@ -2,6 +2,31 @@
 /* ใช้ร่วมกันทั้งหลังบ้านและหน้าสมาชิก จึงอ้างเฉพาะ token สี: ได้ชุดสีของแต่ละฝั่งเอง (รวมธีมมืดของหลังบ้าน) */
 
 .file-library { display: grid; gap: 12px; min-width: 0; }
+
+/* หมวดไฟล์: ปุ่มเรียงแถวเดียวบนจอกว้าง และเป็นตาราง 2×2 บนจอแคบ ทุกปุ่มแตะได้อย่างน้อย 44px หมวดที่เลือกอยู่ใช้สีหลักและน้ำหนักตัวอักษร (ไม่ได้บอกด้วยสีอย่างเดียว) */
+.file-categories { display: flex; flex-wrap: wrap; gap: 8px; }
+.file-category {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 500;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.file-category svg { flex: none; color: var(--text-muted); }
+.file-category:hover { background: var(--surface-muted); border-color: var(--accent-line); }
+.file-category.active { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
+.file-category.active svg { color: inherit; }
+.file-category.active:hover { background: var(--accent-hover); }
+.file-category-note { margin: 0; }
+.file-pending svg { color: var(--accent-text); }
 .file-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 /* ช่องค้นหากับปุ่มค้นหาเป็นกลุ่มเดียว: เมื่อแถบเครื่องมือห่อบรรทัดในจอแคบ ปุ่มยังอยู่ข้างช่องค้นหา */
 .file-search { display: flex; flex: 1 1 320px; align-items: flex-end; gap: 12px; min-width: 0; }
@@ -262,6 +287,8 @@
 .account-temp-value { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 1.25rem; font-weight: 600; letter-spacing: 0.04em; user-select: all; }
 
 @media (max-width: 767px) {
+  .file-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .file-category { padding: 8px 10px; }
   .file-toolbar .toolbar-filter { max-width: none; }
   .preview-title { font-size: 1.25rem; }
   .preview-actions .button { flex: 1 1 auto; }

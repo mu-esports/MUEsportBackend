@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Check, CircleCheck, Copy, Dices, KeyRound, ShieldOff, TriangleAlert } from 'lucide-react'
+import { Check, CircleCheck, Copy, Dices, KeyRound, LoaderCircle, ShieldOff, Trash2, TriangleAlert } from 'lucide-react'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { PasswordField } from '../components/PasswordField'
 import { ACCOUNT_STATE_LABELS, accountsApi, generatePassword, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../data/accounts'
@@ -16,7 +16,7 @@ const BLOCKED_TEXT: Record<NonNullable<MemberAccount['blocked']>, string> = {
 
 const STATE_BADGE: Record<MemberAccount['state'], string> = { none: 'neutral', must_change: 'warning', active: 'active', disabled: 'suspended' }
 
-export type AccountAction = 'password' | 'disable' | 'login-id'
+export type AccountAction = 'password' | 'disable' | 'login-id' | 'delete'
 
 /** ส่วน “บัญชีสมาชิก” ในรายละเอียดสมาชิก: สถานะตามที่ server รายงาน และปุ่มจัดการสำหรับผู้ดูแล */
 export function AccountSection({ member, isAdmin, notice, onAction }: { member: Member; isAdmin: boolean; notice?: string; onAction(action: AccountAction): void }) {
@@ -80,37 +80,50 @@ export function AccountSection({ member, isAdmin, notice, onAction }: { member: 
       {isAdmin ? (
         <div className="button-row">
           {account.state === 'none' && (
-            <button type="button" className="button button-primary" onClick={() => onAction('password')} disabled={account.blocked !== null}>
+            <button type="button" className="button button-primary" data-return-focus="account-password" onClick={() => onAction('password')} disabled={account.blocked !== null}>
               <KeyRound aria-hidden="true" size={16} />
               ตั้งรหัสผ่านและเปิดบัญชี
             </button>
           )}
           {(account.state === 'must_change' || account.state === 'active') && (
             <>
-              <button type="button" className="button" onClick={() => onAction('password')} disabled={account.blocked !== null}>
+              <button type="button" className="button" data-return-focus="account-password" onClick={() => onAction('password')} disabled={account.blocked !== null}>
                 <KeyRound aria-hidden="true" size={16} />
                 รีเซ็ตรหัสผ่าน
               </button>
-              <button type="button" className="button button-danger-outline" onClick={() => onAction('disable')}>
+              <button type="button" className="button button-danger-outline" data-return-focus="account-disable" onClick={() => onAction('disable')}>
                 <ShieldOff aria-hidden="true" size={16} />
                 ปิดบัญชี
               </button>
             </>
           )}
           {account.state === 'disabled' && (
-            <button type="button" className="button" onClick={() => onAction('password')} disabled={account.blocked !== null}>
+            <button type="button" className="button" data-return-focus="account-password" onClick={() => onAction('password')} disabled={account.blocked !== null}>
               <KeyRound aria-hidden="true" size={16} />
               ตั้งรหัสผ่านและเปิดบัญชีอีกครั้ง
             </button>
           )}
           {account.loginMismatch && member.studentId && !member.studentIdIssue && (
-            <button type="button" className="button" onClick={() => onAction('login-id')}>
+            <button type="button" className="button" data-return-focus="account-login-id" onClick={() => onAction('login-id')}>
               ยืนยันใช้รหัส {member.studentId} เข้าสู่ระบบ
             </button>
           )}
         </div>
       ) : (
-        <p className="field-hint">เปิดบัญชี ตั้งหรือรีเซ็ตรหัสผ่าน และปิดบัญชี ทำได้เฉพาะผู้ดูแลระบบ</p>
+        <p className="field-hint">เปิดบัญชี ตั้งหรือรีเซ็ตรหัสผ่าน ปิดบัญชี และลบบัญชีเข้าสู่ระบบ ทำได้เฉพาะผู้ดูแลระบบ</p>
+      )}
+
+      {/* ลบบัญชีเป็นคนละเรื่องกับปิดบัญชีชั่วคราว: แยกออกมาอีกส่วน พร้อมบอกความต่าง */}
+      {isAdmin && has && (
+        <div className="account-delete">
+          <p className="field-hint">
+            ถ้าไม่ต้องการให้สมาชิกคนนี้มีบัญชีเข้าเว็บอีก ให้ลบบัญชีเข้าสู่ระบบ (ข้อมูลในทะเบียนยังอยู่) ถ้าต้องการหยุดใช้ชั่วคราว ใช้ “ปิดบัญชี”
+          </p>
+          <button type="button" className="button button-danger-outline" data-return-focus="account-delete" onClick={() => onAction('delete')}>
+            <Trash2 aria-hidden="true" size={16} />
+            ลบบัญชีเข้าสู่ระบบ
+          </button>
+        </div>
       )}
     </section>
   )
@@ -374,5 +387,137 @@ export function ConfirmLoginIdDialog({ member, onClose, onSaved }: DialogProps) 
         <li>ระบบไม่แจ้งสมาชิกเอง ให้แจ้งรหัสใหม่กับสมาชิกด้วยตัวเอง</li>
       </ul>
     </ConfirmDialog>
+  )
+}
+
+type DeletePhase = 'confirm' | 'deleting' | 'checking'
+
+/**
+ * กล่องยืนยันลบบัญชีเข้าสู่ระบบของสมาชิก (เฉพาะผู้ดูแล)
+ * - แสดงชื่อ รหัสที่ใช้เข้าสู่ระบบ และสถานะบัญชีที่กำลังจะลบ คำสั่งลบส่งรุ่นของบัญชีที่แสดงอยู่ไปด้วย
+ *   ถ้าบัญชีถูกเปลี่ยนจากที่อื่นระหว่างนั้น server ไม่ลบ กล่องนี้แสดงสถานะล่าสุดและต้องยืนยันใหม่
+ * - คำสั่งที่ไม่ได้คำตอบ (เครือข่ายหลุดหรือระบบขัดข้อง): ไม่บอกว่าสำเร็จหรือไม่สำเร็จจนกว่าจะอ่านสถานะจริงจาก server ได้
+ *   การตรวจสถานะเป็นการอ่านอย่างเดียว กดซ้ำได้โดยไม่ลบหรือเปลี่ยนอะไรเพิ่ม
+ */
+export function DeleteAccountDialog({ member, onClose, onSaved, onRefresh }: DialogProps & { onRefresh(): void }) {
+  // สถานะบัญชีล่าสุดที่ผู้ดูแลเห็นและกำลังยืนยัน (อัปเดตเมื่อ server แจ้งว่าบัญชีเปลี่ยน)
+  const [account, setAccount] = useState<MemberAccount>(member.account!)
+  const [phase, setPhase] = useState<DeletePhase>('confirm')
+  const [notice, setNotice] = useState('')
+  // ยังไม่รู้ผลของคำสั่งลบครั้งก่อน: ให้ตรวจสถานะก่อน ยังไม่ให้กดลบซ้ำ
+  const [unknown, setUnknown] = useState(false)
+  const busy = phase !== 'confirm'
+
+  const done = (deleted: boolean, verified = false) =>
+    onSaved(
+      deleted
+        ? `ลบบัญชีเข้าสู่ระบบของ “${member.name}” แล้ว${verified ? ' (ยืนยันจากสถานะล่าสุดของระบบ)' : ''} ข้อมูลในทะเบียนยังอยู่`
+        : `บัญชีเข้าสู่ระบบของ “${member.name}” ถูกลบไปก่อนแล้ว ไม่มีอะไรต้องทำเพิ่ม`,
+    )
+
+  /** อ่านสถานะบัญชีจริงจาก server แล้วสรุปผลจากสิ่งที่อ่านได้เท่านั้น */
+  const verify = async () => {
+    setPhase('checking')
+    try {
+      const latest = await accountsApi.status(member.id)
+      onRefresh()
+      if (latest.state === 'none') return done(true, true)
+      setAccount(latest)
+      setUnknown(false)
+      setNotice('ตรวจสถานะล่าสุดแล้ว: บัญชียังอยู่ ยังไม่ได้ลบ ตรวจข้อมูลด้านล่างแล้วกด “ยืนยันลบบัญชี” อีกครั้งถ้ายังต้องการลบ')
+    } catch (failure) {
+      setUnknown(true)
+      setNotice(`ยังยืนยันไม่ได้ว่าบัญชีถูกลบหรือไม่: ${messageOf(failure, 'เชื่อมต่อระบบกลางไม่ได้')} กด “ตรวจสถานะอีกครั้ง” เมื่อเชื่อมต่อได้ (การตรวจไม่ลบและไม่เปลี่ยนอะไร)`)
+    }
+    setPhase('confirm')
+  }
+
+  const confirm = async () => {
+    if (busy) return
+    setPhase('deleting')
+    setNotice('')
+    try {
+      const result = await accountsApi.remove(member.id, account.revision ?? '')
+      done(result.deleted)
+    } catch (failure) {
+      if (failure instanceof AppError && failure.code === 'account_changed') {
+        // บัญชีถูกตั้งรหัสใหม่หรือเปลี่ยนสถานะจากที่อื่น: ไม่ได้ลบ แสดงสถานะล่าสุดให้ตรวจก่อนยืนยันใหม่
+        const latest = failure.data.account as MemberAccount | undefined
+        onRefresh()
+        if (latest?.state === 'none') return done(false)
+        if (latest) setAccount(latest)
+        setNotice('บัญชีนี้ถูกตั้งรหัสผ่านใหม่หรือเปลี่ยนสถานะจากที่อื่นหลังจากเปิดกล่องนี้ ยังไม่ได้ลบบัญชี ด้านล่างเป็นสถานะล่าสุด ตรวจแล้วกด “ยืนยันลบบัญชี” อีกครั้งถ้ายังต้องการลบ')
+        setPhase('confirm')
+      } else if (failure instanceof AppError && failure.status >= 400 && failure.status < 500) {
+        // server ปฏิเสธชัดเจน (เช่น ไม่มีสิทธิ์ หรือไม่พบสมาชิก): ไม่มีอะไรถูกลบ
+        setNotice(`ลบบัญชีไม่สำเร็จ: ${failure.message} บัญชียังอยู่เหมือนเดิม`)
+        setPhase('confirm')
+      } else {
+        // ไม่ได้คำตอบที่ยืนยันผล: ตรวจสถานะจริงก่อนสรุป
+        await verify()
+      }
+    }
+  }
+
+  return (
+    <Dialog
+      title={`ลบบัญชีเข้าสู่ระบบของ “${member.name}”?`}
+      size="sm"
+      onRequestClose={() => !busy && onClose()}
+      footer={
+        <>
+          <button type="button" className="button" onClick={onClose} disabled={busy} data-autofocus>
+            ยกเลิก
+          </button>
+          {unknown ? (
+            <button type="button" className="button button-primary" onClick={verify} disabled={busy}>
+              {phase === 'checking' && <LoaderCircle aria-hidden="true" size={16} className="spin" />}
+              {phase === 'checking' ? 'กำลังตรวจสถานะ…' : 'ตรวจสถานะอีกครั้ง'}
+            </button>
+          ) : (
+            <button type="button" className="button button-danger" onClick={confirm} disabled={busy}>
+              {busy && <LoaderCircle aria-hidden="true" size={16} className="spin" />}
+              {phase === 'deleting' ? 'กำลังลบบัญชี…' : phase === 'checking' ? 'กำลังตรวจสถานะ…' : 'ยืนยันลบบัญชี'}
+            </button>
+          )}
+        </>
+      }
+    >
+      <div className="confirm-body">
+        {notice && (
+          <p className="form-alert" role="alert">
+            {notice}
+          </p>
+        )}
+        <dl className="detail-list account-identity">
+          <div>
+            <dt>ชื่อ</dt>
+            <dd className="break-word">
+              {member.name}
+              {member.nickname ? ` (${member.nickname})` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>รหัสที่ใช้เข้าสู่ระบบ</dt>
+            <dd className="break-word account-login-id">{account.loginId}</dd>
+          </div>
+          <div>
+            <dt>สถานะบัญชีตอนนี้</dt>
+            <dd>
+              <span className={`badge badge-${STATE_BADGE[account.state]}`}>{ACCOUNT_STATE_LABELS[account.state]}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>ตั้งรหัสผ่านล่าสุด</dt>
+            <dd>{account.passwordSetAt ? formatTimestamp(account.passwordSetAt) : '—'}</dd>
+          </div>
+        </dl>
+        <ul className="bulleted">
+          <li>สมาชิกคนนี้จะเข้าเว็บด้วยบัญชีเดิมไม่ได้อีก และอุปกรณ์ที่เข้าสู่ระบบค้างไว้ถูกออกจากระบบทันที</li>
+          <li>ข้อมูลในทะเบียนสมาชิก รูป และข้อมูลนักกีฬายังอยู่ครบ ไม่มีอะไรถูกลบใน Google Sheets</li>
+          <li>ผู้ดูแลเปิดบัญชีใหม่ให้ภายหลังได้ด้วยการตั้งรหัสผ่านใหม่ (รหัสผ่านเดิมจะใช้ไม่ได้)</li>
+        </ul>
+      </div>
+    </Dialog>
   )
 }

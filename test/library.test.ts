@@ -670,3 +670,158 @@ describe('ตัวอย่างไฟล์', () => {
     expect((await call('/api/documents/no-such-id/file', { as: staff })).status).toBe(404)
   })
 })
+
+describe('หมวด Google Docs / Sheets / Forms', () => {
+  beforeEach(() => connectClub(google, LIBRARY_SCOPES))
+  const two = (n: number) => String(n).padStart(2, '0')
+  const shortcutTo = (name: string, targetMimeType: string, targetId = `target-${name}`) => drive.add({ name, mimeType: MIME.shortcut, shortcut: { targetId, targetMimeType } })
+  const queriesFor = (mime: string) => drive.lists.filter((sent) => (sent.get('q') ?? '').includes(`mimeType = '${mime}' or`))
+
+  it('หมวดดึงตามชนิดจาก Google: ไฟล์ของหมวดที่อยู่นอก 30 รายการแรกของคลังยังพบ และโหลดต่อจนครบได้', async () => {
+    // คลังที่ไฟล์แก้ไขล่าสุด 40 รายการเป็น PDF: Docs/Sheets/Forms ทั้งหมดอยู่ถัดจากหน้าแรกของ “ทั้งหมด”
+    for (let i = 1; i <= 35; i++) drive.add({ name: `เอกสาร ${two(i)}`, mimeType: MIME.doc })
+    for (let i = 1; i <= 3; i++) drive.add({ name: `ชีต ${i}`, mimeType: MIME.sheet })
+    drive.add({ name: 'ฟอร์มรับสมัคร', mimeType: MIME.form })
+    for (let i = 1; i <= 40; i++) drive.add({ name: `รายงาน ${two(i)}.pdf`, mimeType: MIME.pdf, bytes: PDF_BYTES })
+
+    const all = await data(await files(member))
+    expect(all.files).toHaveLength(30)
+    expect(all.files.every((f: any) => f.kind === 'pdf')).toBe(true)
+    expect(all.nextPageToken).not.toBeNull()
+
+    const first = await data(await files(member, '?type=doc'))
+    expect(first.files).toHaveLength(30)
+    expect(first.files.every((f: any) => f.kind === 'doc')).toBe(true)
+    expect(first.nextPageToken).not.toBeNull()
+    const second = await data(await files(member, `?type=doc&pageToken=${encodeURIComponent(first.nextPageToken)}`))
+    expect(second.files).toHaveLength(5)
+    expect(second.nextPageToken).toBeNull()
+    const docNames = [...first.files, ...second.files].map((f: any) => f.name)
+    expect(new Set(docNames).size).toBe(35)
+    expect(docNames.every((name: string) => name.startsWith('เอกสาร '))).toBe(true)
+
+    expect(await names(await files(member, '?type=sheet'))).toEqual(['ชีต 3', 'ชีต 2', 'ชีต 1'])
+    expect(await names(await files(staff, '?type=form'))).toEqual(['ฟอร์มรับสมัคร'])
+    // ชนิดของแต่ละหมวดอยู่ในคำค้นที่ส่งให้ Google: ไม่ได้คัดจากหน้าแรกของคลังที่เบราว์เซอร์หรือที่ server
+    expect(queriesFor(MIME.doc)).toHaveLength(2)
+    expect(queriesFor(MIME.sheet)).toHaveLength(1)
+    expect(queriesFor(MIME.form)).toHaveLength(1)
+    // หนึ่งหน้าที่ขอ = หนึ่งคำขอรายการถึง Google: ไม่ไล่ดึงทุกหน้าเพื่อนับจำนวน
+    expect(listCalls()).toBe(5)
+    expect(googleCalls(google, 'alt=media')).toBe(0)
+    expect(googleCalls(google, '/export')).toBe(0)
+  })
+
+  it('ชนิดตัดสินจาก MIME type จริงของไฟล์หรือของปลายทางทางลัด ไม่ดูชื่อหรือนามสกุล', async () => {
+    const doc = drive.add({ name: 'แผนงาน', mimeType: MIME.doc })
+    const sheet = drive.add({ name: 'งบประมาณ.docx', mimeType: MIME.sheet })
+    const form = drive.add({ name: 'ใบสมัคร.pdf', mimeType: MIME.form })
+    drive.add({ name: 'ชื่อเหมือนเอกสาร.gdoc', mimeType: MIME.pdf, bytes: PDF_BYTES })
+    shortcutTo('ทางลัดไปแผนงาน', MIME.doc, doc.id)
+    shortcutTo('ทางลัดไปงบ', MIME.sheet, sheet.id)
+    shortcutTo('ทางลัดไปใบสมัคร', MIME.form, form.id)
+    shortcutTo('ทางลัดไป PDF ชื่อ Google Docs', MIME.pdf)
+    drive.add({ name: 'ทางลัดที่ไม่รู้ปลายทาง', mimeType: MIME.shortcut })
+
+    const sorted = async (query: string) => (await names(await files(member, query))).sort()
+    expect(await sorted('?type=doc')).toEqual(['ทางลัดไปแผนงาน', 'แผนงาน'].sort())
+    expect(await sorted('?type=sheet')).toEqual(['งบประมาณ.docx', 'ทางลัดไปงบ'].sort())
+    expect(await sorted('?type=form')).toEqual(['ทางลัดไปใบสมัคร', 'ใบสมัคร.pdf'].sort())
+    expect(await sorted('?type=pdf')).toEqual(['ชื่อเหมือนเอกสาร.gdoc', 'ทางลัดไป PDF ชื่อ Google Docs'].sort())
+    // ทางลัดที่ไม่รู้ชนิดปลายทางอยู่ในหมวด “อื่น ๆ” เท่านั้น ไม่ถูกนับเป็น Docs/Sheets/Forms
+    expect(await sorted('?type=other')).toEqual(['ทางลัดที่ไม่รู้ปลายทาง'])
+    expect(await sorted('?type=image')).toEqual([])
+    expect(await sorted('')).toHaveLength(9)
+
+    const docs = (await data(await files(member, '?type=doc'))).files as Record<string, any>[]
+    expect(docs.find((f) => f.name === 'ทางลัดไปแผนงาน')).toMatchObject({ kind: 'doc', shortcut: true, previewable: true })
+    expect(docs.find((f) => f.name === 'แผนงาน')).toMatchObject({ kind: 'doc', shortcut: false })
+    // ค้นชื่อภายในหมวด: ทางลัดที่ชื่อตรงแต่ปลายทางเป็นชนิดอื่นไม่ติดมา
+    expect(await sorted('?type=doc&q=' + encodeURIComponent('ทางลัด'))).toEqual(['ทางลัดไปแผนงาน'])
+  })
+
+  it('หน้าที่ Google ส่งมามีแต่ทางลัดไปยังชนิดอื่น: ถามหน้าถัดไปต่อแบบจำกัดจำนวน และไม่ตอบว่าไม่มีไฟล์ทั้งที่ยังค้นไม่จบ', async () => {
+    drive.add({ name: 'เอกสารเก่า', mimeType: MIME.doc })
+    for (let i = 1; i <= 35; i++) shortcutTo(`ทางลัด PDF ${two(i)}`, MIME.pdf)
+
+    // หน้าแรกจาก Google = ทางลัด 30 รายการ (ถูกคัดออกทั้งหมด) จึงถามหน้าที่สองในคำขอเดียวกัน แล้วพบเอกสาร
+    const found = await data(await files(member, '?type=doc'))
+    expect(found.files.map((f: any) => f.name)).toEqual(['เอกสารเก่า'])
+    expect(found.nextPageToken).toBeNull()
+    expect(listCalls()).toBe(2)
+    // หมวดที่ไม่มีไฟล์จริง ๆ (ถามครบทุกหน้าแล้ว): รายการว่างและไม่มี token
+    expect(await data(await files(member, '?type=form'))).toMatchObject({ files: [], nextPageToken: null })
+    expect(listCalls()).toBe(4)
+
+    // ทางลัดมากจนสามหน้าแรกไม่มีเอกสารเลย: หยุดตามจำนวนที่กำหนด ตอบรายการว่างพร้อม token ให้โหลดต่อ
+    for (let i = 36; i <= 95; i++) shortcutTo(`ทางลัด PDF ${two(i)}`, MIME.pdf)
+    await expireCache()
+    drive.lists.length = 0
+    const pending = await data(await files(member, '?type=doc'))
+    expect(pending.files).toEqual([])
+    expect(pending.nextPageToken).not.toBeNull()
+    expect(listCalls()).toBe(3)
+    const more = await data(await files(member, `?type=doc&pageToken=${encodeURIComponent(pending.nextPageToken)}`))
+    expect(more.files.map((f: any) => f.name)).toEqual(['เอกสารเก่า'])
+    expect(more.nextPageToken).toBeNull()
+    expect(listCalls()).toBe(4)
+  })
+
+  it('ค้นหา เรียง และสำเนาชั่วคราวแยกตามหมวด: ผลไม่ปนกัน และ token ของหมวดหนึ่งใช้กับอีกหมวดไม่ได้', async () => {
+    for (let i = 1; i <= 31; i++) drive.add({ name: `บันทึก ${two(i)}`, mimeType: MIME.doc })
+    for (let i = 1; i <= 31; i++) drive.add({ name: `บันทึก ${two(i)}`, mimeType: MIME.sheet })
+    drive.add({ name: 'เรื่องอื่น', mimeType: MIME.doc })
+    const search = `&q=${encodeURIComponent('บันทึก')}&sort=name`
+
+    const docs = await data(await files(member, `?type=doc${search}`))
+    const sheets = await data(await files(member, `?type=sheet${search}`))
+    expect(docs.files).toHaveLength(30)
+    expect(docs.files.every((f: any) => f.kind === 'doc')).toBe(true)
+    expect(sheets.files.every((f: any) => f.kind === 'sheet')).toBe(true)
+    expect(docs.files.map((f: any) => f.name)).toEqual(sheets.files.map((f: any) => f.name))
+    const ids = (page: any) => page.files.map((f: any) => f.id)
+    expect(ids(docs).some((id: string) => ids(sheets).includes(id))).toBe(false)
+
+    // เปิดซ้ำภายในช่วงสั้น ๆ (ผู้ใช้คนอื่นก็ได้): ใช้สำเนาของหมวดนั้น ไม่ถาม Google ซ้ำ และไม่ได้ผลของอีกหมวด
+    const calls = listCalls()
+    expect(ids(await data(await files(staff, `?type=doc${search}`)))).toEqual(ids(docs))
+    expect(ids(await data(await files(admin, `?type=sheet${search}`)))).toEqual(ids(sheets))
+    expect(listCalls()).toBe(calls)
+
+    // token ของหมวด Docs ใช้กับหมวด Sheets ไม่ได้
+    const crossed = await files(member, `?type=sheet${search}&pageToken=${encodeURIComponent(docs.nextPageToken)}`)
+    expect(crossed.status).toBe(409)
+    expect((await data(crossed)).error).toBe('page_expired')
+    const rest = await data(await files(member, `?type=doc${search}&pageToken=${encodeURIComponent(docs.nextPageToken)}`))
+    expect(rest.files.map((f: any) => [f.name, f.kind])).toEqual([['บันทึก 31', 'doc']])
+    expect(rest.nextPageToken).toBeNull()
+
+    const sent = queriesFor(MIME.sheet)[0]
+    expect(sent.get('q')).toContain(`name contains 'บันทึก'`)
+    expect(sent.get('orderBy')).toBe('name_natural')
+    expect(sent.get('pageSize')).toBe('30')
+  })
+
+  it('การเปิดหมวดเป็นการอ่านรายการไฟล์เท่านั้น: ไม่เรียก Forms/Sheets API ไม่เริ่มเชื่อมแหล่งซิงค์ และคลังที่ยังไม่พร้อมไม่ตอบเป็นหมวดว่าง', async () => {
+    drive.add({ name: 'ทะเบียน', mimeType: MIME.sheet })
+    drive.add({ name: 'ใบสมัคร', mimeType: MIME.form })
+    const before = google.calls.length
+    for (const type of ['doc', 'sheet', 'form']) expect((await files(member, `?type=${type}`)).status).toBe(200)
+    const made = google.calls.slice(before).map((c) => new URL(c.url)).filter((url) => url.hostname !== 'oauth2.googleapis.com')
+    expect(made.length).toBeGreaterThan(0)
+    expect(made.every((url) => url.hostname === 'www.googleapis.com' && url.pathname.startsWith('/drive/v3/files'))).toBe(true)
+    expect(googleCalls(google, 'forms.googleapis.com')).toBe(0)
+    expect(googleCalls(google, 'sheets.googleapis.com')).toBe(0)
+    for (const table of ['sync_resources', 'setup_operations', 'form_items', 'form_responses']) {
+      expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first<{ n: number }>())?.n, table).toBe(0)
+    }
+
+    // ถอนสิทธิ์อ่านคลัง: ทุกหมวดตอบว่าคลังยังไม่พร้อม ไม่ใช่รายการว่าง
+    await env.DB.prepare(`UPDATE google_connections SET scopes = ?`).bind(ALL_SCOPES).run()
+    for (const type of ['all', 'doc', 'sheet', 'form']) {
+      const res = await files(member, `?type=${type}`)
+      expect(res.status, type).toBe(409)
+      expect(await data(res)).toMatchObject({ error: 'library_unavailable' })
+    }
+  })
+})

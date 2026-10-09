@@ -321,7 +321,22 @@ export function FilesPage() {
       <PendingOperations />
 
       <section className="card" aria-label="รายการไฟล์ของชมรม">
-        <FileList basePath="/files" unavailable={(info) => <LibraryUnavailable {...info} />} />
+        <FileList
+          basePath="/files"
+          unavailable={(info) => <LibraryUnavailable {...info} />}
+          categoryNote={(type) =>
+            // หมวดนี้เป็นรายการไฟล์ในคลัง ไม่ใช่เครื่องมือฟอร์มที่ซิงค์คำตอบ: บอกให้ชัดและพาไปหน้าที่ถูก
+            type === 'form' ? (
+              <p className="notice file-category-note">
+                <Info aria-hidden="true" size={18} />
+                <span>
+                  หมวดนี้คือไฟล์ Google Forms ทุกไฟล์ในคลัง เปิดดูคำถามได้อย่างเดียว ส่วนคำตอบของผู้กรอกและการเพิ่มสมาชิกจากฟอร์มที่เชื่อมไว้อยู่ที่หน้า{' '}
+                  <Link to="/forms">ฟอร์ม</Link>
+                </span>
+              </p>
+            ) : null
+          }
+        />
       </section>
     </>
   )

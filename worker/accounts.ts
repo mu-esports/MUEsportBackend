@@ -1,8 +1,9 @@
+import { randomToken } from './crypto'
 import { nowIso } from './env'
 import type { AppEnv, Ctx } from './env'
 import { HttpError, json, readJson } from './http'
 import { burnVerification, hashPassword, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, normalizePassword, passwordLength, verifyPassword } from './password'
-import { audit, clearSessionCookie, deleteSession, newMemberSession, requireMember, requireMemberMutation, requireMutation, requireOwnSessionMutation } from './session'
+import { audit, clearSessionCookie, deleteSession, newMemberSession, requireMember, requireMemberMutation, requireMutation, requireOwnSessionMutation, requireUser } from './session'
 import { updateMemberRow } from './sheets'
 import type { SheetConfig } from './sheets'
 import { loadResource } from './sync'
@@ -43,13 +44,23 @@ export interface MemberAccountRow {
   account_must_change: number | null
   account_password_set_at: string | null
   account_last_login_at: string | null
+  /** รุ่นของบัญชี (ค่าสุ่ม เปลี่ยนเมื่อบัญชีถูกตั้งรหัสใหม่ ปิด เปลี่ยนรหัสเข้าสู่ระบบ หรือสร้างใหม่) */
+  account_revision: string | null
+  /** รุ่นของรูปโปรไฟล์ (null = ไม่มีรูป) ตัวรูปไม่ถูกอ่านมากับรายชื่อ */
+  photo_version: string | null
+  /** โปรไฟล์นักกีฬาของคนนี้ (null = ไม่ได้เป็นนักกีฬา) */
+  athlete_game: string | null
+  athlete_status: 'active' | 'inactive' | null
 }
 
-// เลือกเฉพาะคอลัมน์สถานะของบัญชี ไม่ดึง password_hash ออกมากับรายชื่อสมาชิก
+// เลือกเฉพาะคอลัมน์สถานะของบัญชี ไม่ดึง password_hash ออกมากับรายชื่อสมาชิก และไม่ดึงข้อมูลรูป (เฉพาะรุ่นของรูป)
 export const MEMBER_WITH_ACCOUNT = `
   SELECT m.*, a.login_id AS account_login_id, a.status AS account_status, a.must_change_password AS account_must_change,
-         a.password_set_at AS account_password_set_at, a.last_login_at AS account_last_login_at
-    FROM members m LEFT JOIN member_accounts a ON a.member_id = m.id`
+         a.password_set_at AS account_password_set_at, a.last_login_at AS account_last_login_at, a.revision AS account_revision,
+         p.version AS photo_version, t.game AS athlete_game, t.status AS athlete_status
+    FROM members m LEFT JOIN member_accounts a ON a.member_id = m.id
+    LEFT JOIN member_photos p ON p.member_id = m.id
+    LEFT JOIN athletes t ON t.member_id = m.id`
 
 export type AccountState = 'none' | 'must_change' | 'active' | 'disabled'
 
@@ -69,8 +80,13 @@ export function accountSummary(row: MemberAccountRow) {
     passwordSetAt: row.account_password_set_at,
     lastLoginAt: row.account_last_login_at,
     blocked,
+    /** รุ่นของบัญชีที่กำลังแสดง: คำสั่งลบบัญชีต้องส่งค่านี้กลับมา (null = ยังไม่มีบัญชี) */
+    revision: row.account_login_id === null ? null : (row.account_revision ?? ''),
   }
 }
+
+/** ค่ารุ่นใหม่ของบัญชี: สุ่มทุกครั้ง จึงไม่ซ้ำกับรุ่นของบัญชีเดิมที่ถูกลบไปแล้ว */
+const newRevision = () => randomToken(12)
 
 const getMember = (env: AppEnv, id: string) => env.DB.prepare(`${MEMBER_WITH_ACCOUNT} WHERE m.id = ?`).bind(id).first<MemberAccountRow>()
 
@@ -136,12 +152,13 @@ async function setPassword(ctx: Ctx, memberId: string): Promise<Response> {
   try {
     const results = await ctx.env.DB.batch([
       ctx.env.DB.prepare(
-        `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at)
-         SELECT ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?
+        `INSERT INTO member_accounts (member_id, login_id, password_hash, status, must_change_password, password_set_at, password_set_by, created_by, created_at, updated_at, revision)
+         SELECT ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?, ?
          WHERE NOT EXISTS (SELECT 1 FROM member_accounts WHERE login_id IN (?, ?) AND member_id <> ?)
          ON CONFLICT (member_id) DO UPDATE SET password_hash = excluded.password_hash, status = 'active', must_change_password = 1,
-           password_set_at = excluded.password_set_at, password_set_by = excluded.password_set_by, disabled_at = NULL, updated_at = excluded.updated_at`,
-      ).bind(memberId, loginId, hash, now, session.user.id, session.user.id, now, now, ...aliases, memberId),
+           password_set_at = excluded.password_set_at, password_set_by = excluded.password_set_by, disabled_at = NULL, updated_at = excluded.updated_at,
+           revision = excluded.revision`,
+      ).bind(memberId, loginId, hash, now, session.user.id, session.user.id, now, now, newRevision(), ...aliases, memberId),
       revokeSessions(ctx.env, memberId),
       await clearLoginId(ctx.env, loginId),
     ])
@@ -165,7 +182,7 @@ async function disableAccount(ctx: Ctx, memberId: string): Promise<Response> {
   if (!member.account_login_id) throw noAccount()
   const now = nowIso()
   const results = await ctx.env.DB.batch([
-    ctx.env.DB.prepare(`UPDATE member_accounts SET status = 'disabled', disabled_at = ?, updated_at = ? WHERE member_id = ? AND status = 'active'`).bind(now, now, memberId),
+    ctx.env.DB.prepare(`UPDATE member_accounts SET status = 'disabled', disabled_at = ?, updated_at = ?, revision = ? WHERE member_id = ? AND status = 'active'`).bind(now, now, newRevision(), memberId),
     revokeSessions(ctx.env, memberId),
   ])
   if (results[0].meta.changes === 1) await audit(ctx.env, session.user.id, 'member_account.disabled', memberId)
@@ -194,7 +211,7 @@ async function confirmLoginId(ctx: Ctx, memberId: string): Promise<Response> {
   const aliases = studentIdAliases(nextLoginId)
   try {
     const results = await ctx.env.DB.batch([
-      ctx.env.DB.prepare('UPDATE member_accounts SET login_id = ?, updated_at = ? WHERE member_id = ? AND NOT EXISTS (SELECT 1 FROM member_accounts WHERE login_id IN (?, ?) AND member_id <> ?)').bind(nextLoginId, nowIso(), memberId, ...aliases, memberId),
+      ctx.env.DB.prepare('UPDATE member_accounts SET login_id = ?, updated_at = ?, revision = ? WHERE member_id = ? AND NOT EXISTS (SELECT 1 FROM member_accounts WHERE login_id IN (?, ?) AND member_id <> ?)').bind(nextLoginId, nowIso(), newRevision(), memberId, ...aliases, memberId),
       // สมาชิกต้องเข้าสู่ระบบใหม่ด้วยรหัสนักศึกษาใหม่
       revokeSessions(ctx.env, memberId),
     ])
@@ -209,11 +226,61 @@ async function confirmLoginId(ctx: Ctx, memberId: string): Promise<Response> {
   return json({ account: accountSummary((await getMember(ctx.env, memberId))!) })
 }
 
-export async function handleMemberAccount(ctx: Ctx, memberId: string, action: string): Promise<Response | null> {
+/** GET /api/members/:id/account — สถานะล่าสุดของบัญชีเข้าสู่ระบบของสมาชิกหนึ่งคน ใช้ตรวจผลจริงหลังคำสั่งที่ยังไม่ได้คำตอบ */
+async function accountStatus(ctx: Ctx, memberId: string): Promise<Response> {
+  requireUser(ctx)
+  const member = await getMember(ctx.env, memberId)
+  if (!member) throw memberNotFound()
+  return json({ account: accountSummary(member) })
+}
+
+/**
+ * POST /api/members/:id/account/delete — ลบบัญชีเข้าสู่ระบบของสมาชิก (เฉพาะผู้ดูแล)
+ * - ลบเฉพาะบัญชีของเว็บ (รหัสเข้าสู่ระบบ ตัวตรวจรหัสผ่าน และ session ของสมาชิกคนนี้ทั้งหมด) ในคำสั่งชุดเดียวที่สำเร็จหรือไม่สำเร็จพร้อมกัน
+ *   ทะเบียนสมาชิก โปรไฟล์นักกีฬา รูปโปรไฟล์ ข้อมูลใน Google Sheets บัญชีของคนอื่น และ session ของทีมงานไม่ถูกแตะ
+ * - ต้องส่งรุ่นของบัญชีที่เห็นตอนเปิดกล่องยืนยัน (expectedRevision): ถ้าบัญชีถูกตั้งรหัสใหม่ เปลี่ยนสถานะ หรือถูกลบแล้วเปิดใหม่ระหว่างนั้น จะไม่ลบและตอบ 409
+ * - ไม่มีบัญชีอยู่แล้ว (เช่น คำขอก่อนหน้าสำเร็จแต่คำตอบหาย): ตอบสถานะปัจจุบันโดยไม่ทำอะไรเพิ่ม เรียกซ้ำได้อย่างปลอดภัย
+ * - session เดิมถูกลบจริง จึงกลับมาใช้ไม่ได้แม้เปิดบัญชีใหม่ภายหลัง
+ */
+async function deleteAccount(ctx: Ctx, memberId: string): Promise<Response> {
+  const session = await requireMutation(ctx, 'admin')
+  const body = await readJson(ctx.request, 1024)
+  const expected = body.expectedRevision
+  if (typeof expected !== 'string' || expected.length > 64) {
+    throw invalid('ไม่ได้ระบุรุ่นของบัญชีที่จะลบ โหลดรายการใหม่แล้วลองอีกครั้ง', 'expectedRevision')
+  }
+  const member = await getMember(ctx.env, memberId)
+  if (!member) throw memberNotFound()
+  if (member.account_login_id === null) return json({ account: accountSummary(member), deleted: false })
+  const changed = (current: MemberAccountRow) =>
+    new HttpError(409, 'account_changed', 'บัญชีนี้ถูกตั้งรหัสผ่านใหม่หรือเปลี่ยนสถานะจากที่อื่นหลังจากที่เปิดกล่องนี้ ยังไม่ได้ลบบัญชี ตรวจสถานะล่าสุดก่อนยืนยันอีกครั้ง', {
+      account: accountSummary(current),
+    })
+  if ((member.account_revision ?? '') !== expected) throw changed(member)
+
+  const results = await ctx.env.DB.batch([
+    // ลบ session ก่อน และเฉพาะเมื่อบัญชียังเป็นรุ่นที่ผู้ดูแลยืนยัน: ถ้ารุ่นเปลี่ยนไปแล้ว ทั้งสองคำสั่งไม่ลบอะไรเลย
+    ctx.env.DB.prepare('DELETE FROM member_sessions WHERE member_id = ? AND EXISTS (SELECT 1 FROM member_accounts WHERE member_id = ? AND revision = ?)').bind(memberId, memberId, expected),
+    ctx.env.DB.prepare('DELETE FROM member_accounts WHERE member_id = ? AND revision = ?').bind(memberId, expected),
+  ])
+  const after = (await getMember(ctx.env, memberId))!
+  if (results[1].meta.changes < 1) {
+    // บัญชีเปลี่ยนไประหว่างคำขอนี้: ถ้าถูกลบไปแล้วโดยคำขออื่นถือว่าไม่มีอะไรต้องทำ ถ้ายังอยู่ให้ผู้ดูแลตรวจใหม่
+    if (after.account_login_id === null) return json({ account: accountSummary(after), deleted: false })
+    throw changed(after)
+  }
+  // บันทึกว่าใครลบบัญชีของสมาชิกคนใด ไม่มีรหัสผ่าน ตัวตรวจรหัสผ่าน หรือรหัสนักศึกษา
+  await audit(ctx.env, session.user.id, 'member_account.deleted', memberId)
+  return json({ account: accountSummary(after), deleted: true })
+}
+
+export async function handleMemberAccount(ctx: Ctx, memberId: string, action: string | undefined): Promise<Response | null> {
+  if (action === undefined) return ctx.request.method === 'GET' ? accountStatus(ctx, memberId) : null
   if (ctx.request.method !== 'POST') return null
   if (action === 'password') return setPassword(ctx, memberId)
   if (action === 'disable') return disableAccount(ctx, memberId)
   if (action === 'login-id') return confirmLoginId(ctx, memberId)
+  if (action === 'delete') return deleteAccount(ctx, memberId)
   return null
 }
 
@@ -344,8 +411,9 @@ interface SelfRow extends MemberAccountRow {
 
 const getSelf = (env: AppEnv, id: string) =>
   env.DB.prepare(`SELECT m.*, a.login_id AS account_login_id, a.status AS account_status, a.must_change_password AS account_must_change,
-                         a.password_set_at AS account_password_set_at, a.last_login_at AS account_last_login_at, a.password_set_by AS account_password_set_by
-                    FROM members m JOIN member_accounts a ON a.member_id = m.id WHERE m.id = ?`).bind(id).first<SelfRow>()
+                         a.password_set_at AS account_password_set_at, a.last_login_at AS account_last_login_at, a.password_set_by AS account_password_set_by,
+                         a.revision AS account_revision, p.version AS photo_version, NULL AS athlete_game, NULL AS athlete_status
+                    FROM members m JOIN member_accounts a ON a.member_id = m.id LEFT JOIN member_photos p ON p.member_id = m.id WHERE m.id = ?`).bind(id).first<SelfRow>()
 
 /** ช่องทางติดต่อของสมาชิกที่เป็นสำเนาจากชีต แก้ได้เมื่อเว็บเขียนชีตได้และชีตมีคอลัมน์ช่องทางติดต่อ */
 async function contactEditable(env: AppEnv, row: MemberAccountRow): Promise<boolean> {
@@ -367,6 +435,8 @@ const selfView = async (env: AppEnv, row: SelfRow) => ({
   version: row.version,
   contactEditable: await contactEditable(env, row),
   passwordChangedAt: row.account_password_set_by === null ? row.account_password_set_at : null,
+  /** รุ่นของรูปโปรไฟล์ของตัวเอง (null = ไม่มีรูป) รูปอ่านได้จาก /api/members/<รหัสของตัวเอง>/photo เท่านั้น */
+  photoVersion: row.photo_version,
 })
 
 async function me(ctx: Ctx): Promise<Response> {
@@ -446,7 +516,7 @@ async function changePassword(ctx: Ctx): Promise<Response> {
   const now = nowIso()
   const fresh = await newMemberSession(ctx.env, id, ctx.url, hash)
   const changed = await ctx.env.DB.batch([
-    ctx.env.DB.prepare("UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ? WHERE member_id = ? AND password_hash = ? AND status = 'active'").bind(hash, now, now, id, account.password_hash),
+    ctx.env.DB.prepare("UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ?, revision = ? WHERE member_id = ? AND password_hash = ? AND status = 'active'").bind(hash, now, now, newRevision(), id, account.password_hash),
     ctx.env.DB.prepare('DELETE FROM member_sessions WHERE member_id = ? AND EXISTS (SELECT 1 FROM member_accounts WHERE member_id = ? AND password_hash = ?)').bind(id, id, hash),
     fresh.insert,
   ])

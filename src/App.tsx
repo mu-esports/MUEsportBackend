@@ -13,6 +13,7 @@ import { MemberHomePage } from './member/MemberHome'
 import { MemberLayout } from './member/MemberLayout'
 import { MemberPasswordPage } from './member/MemberPassword'
 import { IS_DEMO } from './mode'
+import { AthletesPage } from './pages/Athletes'
 import { CalendarPage } from './pages/Calendar'
 import { DocumentCreatePage } from './pages/DocumentCreate'
 import { DocumentEditorPage } from './pages/DocumentEditor'
@@ -81,6 +82,7 @@ const liveRoutes: RouteObject[] = [
         ),
         children: [
           ...sharedPages,
+          { path: 'athletes', element: <AthletesPage /> },
           { path: 'files', element: <FilesPage /> },
           { path: 'files/:id', element: <FileViewPage /> },
           // หน้าเอกสารเดิมกลายเป็นหน้าไฟล์ชมรม ลิงก์เดิมของเอกสารแต่ละฉบับพาไปยังตัวอย่างของไฟล์นั้น

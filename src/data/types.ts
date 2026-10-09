@@ -13,7 +13,11 @@ export interface MemberAccount {
   lastLoginAt: string | null
   /** เหตุผลที่ยังเปิดบัญชีหรือตั้งรหัสผ่านไม่ได้ */
   blocked: null | 'suspended' | 'no_student_id' | 'student_id_conflict'
+  /** รุ่นของบัญชีที่กำลังแสดง (null = ยังไม่มีบัญชี) ส่งกลับไปตอนลบบัญชี เพื่อไม่ลบบัญชีที่ถูกเปลี่ยนหรือสร้างใหม่จากที่อื่น */
+  revision?: string | null
 }
+
+export type AthleteStatus = 'active' | 'inactive'
 
 export interface Member {
   id: string
@@ -36,9 +40,43 @@ export interface Member {
   source?: 'local' | 'sheets'
   /** missing = เคยมาจากชีตแต่ไม่พบแถวแล้ว */
   sourceState?: 'ok' | 'missing'
+  /** รุ่นของรูปโปรไฟล์ (null = ไม่มีรูป) ตัวรูปโหลดแยกจาก /api/members/:id/photo (ไม่มีในโหมดตัวอย่าง) */
+  photoVersion?: string | null
+  /** โปรไฟล์นักกีฬาของคนนี้ (null = ไม่ได้เป็นนักกีฬา) เป็นข้อมูลประกอบ ไม่ใช่สิทธิ์ของระบบ */
+  athlete?: { game: string; status: AthleteStatus } | null
 }
 
-export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState' | 'studentIdIssue' | 'account'>
+export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState' | 'studentIdIssue' | 'account' | 'photoVersion' | 'athlete'>
+
+/** โปรไฟล์นักกีฬา: ข้อมูลเพิ่มเติมของคนในทะเบียนสมาชิก ชื่อ ชื่อเล่น รหัสนักศึกษา และรูปมาจากทะเบียนเสมอ */
+export interface Athlete {
+  /** รหัสสมาชิกในทะเบียน (ตัวตนของนักกีฬา) */
+  memberId: string
+  name: string
+  nickname: string
+  studentId: string
+  memberStatus: MemberStatus
+  memberSourceState: 'ok' | 'missing'
+  photoVersion: string | null
+  game: string
+  team: string
+  position: string
+  /** ชื่อในเกม */
+  ign: string
+  status: AthleteStatus
+  note: string
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type AthleteInput = Pick<Athlete, 'game' | 'team' | 'position' | 'ign' | 'status' | 'note'>
+
+export const ATHLETE_STATUS_LABELS: Record<AthleteStatus, string> = {
+  active: 'ลงแข่งอยู่',
+  inactive: 'ไม่ได้ลงแข่ง',
+}
+export const ATHLETE_STATUSES = Object.keys(ATHLETE_STATUS_LABELS) as AthleteStatus[]
 
 /** รูปแบบรหัสนักศึกษาที่ระบบรับ ต้องตรงกับที่ server ตรวจ (worker/validation.ts) */
 export const STUDENT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,30}[A-Za-z0-9])?$/

@@ -82,6 +82,16 @@ const EXTRA = Array.from({ length: 36 }, (_, i) => ({
   shortcut: false, shared: false, folder: i % 3 === 0 ? 'โฟลเดอร์รายงานกิจกรรมการแข่งขันและเอกสารประกอบของชมรมประจำปีการศึกษา' : null, previewable: true,
 }))
 const ALL = [...MOCK_FILES, ...EXTRA]
+// ชุดเพิ่มแบบเลือกใช้ (options.deep): ไฟล์ Docs/Sheets/Forms ที่เก่ากว่าทุกไฟล์ข้างบน จึงไม่อยู่ใน 30 รายการแรกของ “ทั้งหมด”
+// ใช้ตรวจว่าหมวดขอรายการตามชนิดจาก API ไม่ได้คัดจากหน้าแรกในเบราว์เซอร์ และโหลดเพิ่มภายในหมวดได้
+const old = (id, name, kind, mimeType, minutes, extra = {}) => ({ id, name, kind, mimeType, modifiedTime: iso(minutes), size: null, shortcut: false, shared: false, folder: null, previewable: true, ...extra })
+export const DEEP_FILES = [
+  ...Array.from({ length: 32 }, (_, i) => old(`file-doc-old-${String(i + 1).padStart(4, '0')}`, `บันทึกการประชุมปี 2568 ครั้งที่ ${String(i + 1).padStart(2, '0')}`, 'doc', 'application/vnd.google-apps.document', 40_000 + i * 60)),
+  old('file-doc-shortcut-0001', 'ทางลัดไปแผนงานชมรม', 'doc', 'application/vnd.google-apps.document', 45_000, { shortcut: true }),
+  old('file-sheet-old-0001', 'ทะเบียนอุปกรณ์ปี 2568', 'sheet', 'application/vnd.google-apps.spreadsheet', 46_000),
+  old('file-form-old-0001', 'แบบประเมินกิจกรรมปี 2568', 'form', 'application/vnd.google-apps.form', 47_000, { shared: true }),
+]
+DEEP_FILES.forEach((file) => { file.thumbnail = file.kind !== 'form' })
 // ทดสอบภาพย่อผ่าน API ของเว็บ ไม่ใช้ URL Google หรือ credential ใน browser
 ALL.forEach((file) => { file.thumbnail = ['doc', 'sheet', 'slides', 'pdf', 'image'].includes(file.kind) })
 
@@ -92,12 +102,14 @@ const json = (route, body, status = 200) => route.fulfill({ status, contentType:
 /**
  * ตอบ /api/library/* ของหน้านี้ด้วยข้อมูลสมมติ
  * @param {import('playwright-core').Page} page
- * @param {{ audience?: 'staff' | 'member', mode?: { list?: 'ok' | 'unavailable' | 'missing_scope' | 'error' | 'stale' | 'empty' }, calls?: string[] }} options
+ * @param {{ audience?: 'staff' | 'member', mode?: { list?: 'ok' | 'unavailable' | 'missing_scope' | 'error' | 'stale' | 'empty' | 'pending' }, calls?: string[], deep?: boolean }} options
+ *        deep = รวมไฟล์ Docs/Sheets/Forms ที่อยู่ถัดจากหน้าแรก; mode.list = 'pending' = หน้าแรกของหมวดว่างแต่ยังมีหน้าถัดไป (เหมือน server ที่ยังค้นไม่จบ)
  */
 export async function mockLibrary(page, options = {}) {
   const audience = options.audience ?? 'member'
   const mode = options.mode ?? {}
   const calls = options.calls ?? []
+  const files = options.deep ? [...ALL, ...DEEP_FILES] : ALL
   const pdf = makePdf(['MU Esport - page 1', 'MU Esport - page 2', 'MU Esport - page 3'])
   await page.route('**/api/library/**', (route) => {
     const url = new URL(route.request().url())
@@ -129,9 +141,13 @@ export async function mockLibrary(page, options = {}) {
       const type = url.searchParams.get('type') ?? 'all'
       const sort = url.searchParams.get('sort') ?? 'modified'
       const limit = Number(url.searchParams.get('limit') ?? 30)
-      let found = state === 'empty' ? [] : ALL.filter((f) => (!q || f.name.toLowerCase().includes(q)) && (type === 'all' || f.kind === type || (type === 'other' && ['text', 'video', 'other'].includes(f.kind))))
+      // หมวดที่ยังค้นไม่จบ: หน้าแรกไม่มีไฟล์ของหมวด แต่ยังมีตำแหน่งหน้าถัดไป (ไม่ใช่ “ไม่มีไฟล์”)
+      if (state === 'pending' && type !== 'all' && !url.searchParams.get('pageToken')) {
+        return json(route, { files: [], nextPageToken: 'pending-next', incomplete: false, fetchedAt: new Date().toISOString(), pageSize: limit, stale: false })
+      }
+      let found = state === 'empty' ? [] : files.filter((f) => (!q || f.name.toLowerCase().includes(q)) && (type === 'all' || f.kind === type || (type === 'other' && ['text', 'video', 'other'].includes(f.kind))))
       found = [...found].sort((a, b) => (sort === 'name' ? a.name.localeCompare(b.name, 'th') : b.modifiedTime.localeCompare(a.modifiedTime)))
-      const offset = Number(url.searchParams.get('pageToken') ?? 0)
+      const offset = Number(url.searchParams.get('pageToken') ?? 0) || 0
       const pageFiles = found.slice(offset, offset + limit)
       return json(route, {
         files: pageFiles, nextPageToken: offset + limit < found.length ? String(offset + limit) : null, incomplete: false,
@@ -140,7 +156,7 @@ export async function mockLibrary(page, options = {}) {
       })
     }
 
-    const file = ALL.find((f) => f.id === parts[1])
+    const file = files.find((f) => f.id === parts[1])
     if (!file) return json(route, { error: 'file_unavailable', message: 'เปิดไฟล์นี้ไม่ได้: ไฟล์อาจถูกลบ ย้ายไปถังขยะ หรือบัญชี Google ของชมรมไม่มีสิทธิ์เข้าถึงแล้ว' }, 404)
     const previewKind = { doc: 'pdf', slides: 'pdf', pdf: 'pdf', sheet: 'sheet', form: 'form', image: 'image', text: 'text' }[file.kind] ?? 'none'
     if (parts.length === 2) {
