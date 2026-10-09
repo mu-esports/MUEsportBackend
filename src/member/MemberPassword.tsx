@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { useToast } from '../components/Toast'
 import { CLUB_NAME } from '../config'
 import { LeavingProvider, LogoutButton } from './MemberLayout'
+import { ThemeSwitch } from '../components/ThemeSwitch'
 import { PasswordForm } from './PasswordForm'
 import { useMemberSurface } from './surface'
 
@@ -27,7 +28,7 @@ export function MemberPasswordPage() {
   if (!member.mustChangePassword) return <Navigate to="/member" replace />
 
   return (
-    <div className="login-page">
+    <div className="login-page"><div className="login-theme"><ThemeSwitch /></div>
       <LeavingProvider>
         <main className="login-main" id="main">
           <p className="login-brand">

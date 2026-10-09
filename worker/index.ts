@@ -15,6 +15,8 @@ import { handleSetup, handleSync } from './setup'
 import { handleSources } from './sources'
 import { runScheduled } from './sync'
 import { handleUsers } from './users'
+import { handleTasks, handleTaskFiles } from './tasks'
+import { ownProfile } from './profiles'
 
 async function handleApi(ctx: Ctx): Promise<Response> {
   const parts = ctx.url.pathname.split('/').filter(Boolean).slice(1)
@@ -33,6 +35,10 @@ async function handleApi(ctx: Ctx): Promise<Response> {
   let response: Response | null = null
   if (resource === 'members') response = await handleMembers(ctx, rest)
   else if (resource === 'athletes') response = await handleAthletes(ctx, rest)
+  else if (resource === 'tasks') response = await handleTasks(ctx, rest)
+  else if (resource === 'task-files') response = await handleTaskFiles(ctx, rest)
+  else if (resource === 'member' && rest[0] === 'tasks') response = await handleTasks(ctx, rest.slice(1), true)
+  else if (resource === 'member' && rest[0] === 'profile' && rest.length === 1 && ctx.request.method === 'PATCH') response = await ownProfile(ctx)
   else if (resource === 'member') response = await handleMemberSelf(ctx, rest)
   else if (resource === 'library') response = await handleLibrary(ctx, rest)
   else if (resource === 'events') response = await handleEvents(ctx, rest)

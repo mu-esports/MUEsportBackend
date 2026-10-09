@@ -31,6 +31,8 @@ export interface Member {
   role: MemberRole
   status: MemberStatus
   contact: string
+  email?: string
+  contacts?: import('../lib/contacts').ContactChannel[]
   note: string
   /** วันที่เพิ่ม รูปแบบ YYYY-MM-DD ตามเวลา Asia/Bangkok */
   addedAt: string
@@ -46,7 +48,7 @@ export interface Member {
   athlete?: { game: string; status: AthleteStatus } | null
 }
 
-export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState' | 'studentIdIssue' | 'account' | 'photoVersion' | 'athlete'>
+export type MemberInput = Omit<Member, 'id' | 'addedAt' | 'version' | 'source' | 'sourceState' | 'studentIdIssue' | 'account' | 'photoVersion' | 'athlete' | 'email' | 'contacts'>
 
 /** โปรไฟล์นักกีฬา: ข้อมูลเพิ่มเติมของคนในทะเบียนสมาชิก ชื่อ ชื่อเล่น รหัสนักศึกษา และรูปมาจากทะเบียนเสมอ */
 export interface Athlete {

@@ -285,9 +285,12 @@ try {
       (await p.locator('#login-password').getAttribute('type')) === 'password' &&
       (await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).isVisible()) && (await p.getByText('ลืมรหัสผ่าน? ติดต่อทีมงาน').isVisible()))
     check('[จริง] หน้าเข้าสู่ระบบ: ไม่มีทางสมัครบัญชีเอง ไม่มีเมนูหรือข้อมูลหลังบ้าน และไม่มีแผงกราฟิกของหน้าเดิม',
-      (await p.getByText(/สมัครสมาชิก|สร้างบัญชี|ลงทะเบียน/).count()) === 0 && (await p.locator('.sidebar, .nav-link, table, .auth-hero, .auth-shape, .theme-switch').count()) === 0)
+      (await p.getByText(/สมัครสมาชิก|สร้างบัญชี|ลงทะเบียน/).count()) === 0 && (await p.locator('.sidebar, .nav-link, table, .auth-hero, .auth-shape').count()) === 0)
     const surface = await p.evaluate(() => ({ theme: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, scheme: getComputedStyle(document.documentElement).colorScheme }))
-    check('[จริง] หน้าเข้าสู่ระบบสว่างเสมอ แม้เบราว์เซอร์นี้เคยเลือกธีมมืดของหลังบ้านไว้', surface.theme === 'light' && surface.bg === 'rgb(248, 250, 252)' && surface.scheme === 'light', JSON.stringify(surface))
+    check('[จริง] หน้าเข้าสู่ระบบใช้ธีมมืดที่บันทึกไว้ และมีปุ่มสลับธีม', surface.theme === 'dark' && surface.scheme === 'dark' && (await p.getByRole('switch', { name: 'ธีมมืด' }).isVisible()), JSON.stringify(surface))
+    await p.getByRole('switch', { name: 'ธีมมืด' }).click()
+    check('[จริง] หน้าเข้าสู่ระบบสลับกลับสว่างได้', (await p.evaluate(() => document.documentElement.dataset.theme)) === 'light')
+    await p.getByRole('switch', { name: 'ธีมมืด' }).click()
     check('[จริง] หน้าเข้าสู่ระบบ: ธีมที่ทีมงานบันทึกไว้ไม่ถูกเขียนทับ', (await p.evaluate((key) => localStorage.getItem(key), THEME_KEY)) === 'dark')
 
     // contrast จากสีที่ใช้จริง
@@ -686,53 +689,36 @@ try {
   // ---------- หน้าแรก ----------
   for (const [w, h] of [[1440, 900], [390, 844]]) {
     const tag = `หน้าแรกสมาชิก ${w}px`
-    // คลังจริงของ Worker: เครื่องนี้ไม่ได้เชื่อม Google จึงต้องบอกว่ายังไม่พร้อม ไม่ใช่บอกว่าไม่มีไฟล์
-    const real = await newPage(w, h, member, 0, { theme: 'dark' })
-    await real.goto(`${BASE}/member`)
-    await real.getByRole('heading', { name: 'สวัสดี มายด์', level: 1 }).waitFor()
-    await real.locator('.m-event').first().waitFor()
-    const filesCard = real.locator('section[aria-labelledby="home-files"]')
-    check(`[จริง] ${tag}: คลังไฟล์ยังไม่ได้เชื่อม Google จึงบอกว่ายังไม่พร้อมใช้งาน ไม่แสดงว่า “ไม่มีไฟล์”`,
-      (await appears(filesCard.getByText('คลังไฟล์ของชมรมยังไม่พร้อมใช้งานในตอนนี้ ติดต่อทีมงาน'))) && (await filesCard.getByText(/ยังไม่มีไฟล์/).count()) === 0)
-    const surface = await real.evaluate(() => ({ theme: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, header: getComputedStyle(document.querySelector('.m-header')).backgroundColor }))
-    check(`[จริง] ${tag}: หน้าสมาชิกสว่างเสมอ ไม่รับธีมมืดของหลังบ้านที่เคยเลือกในเบราว์เซอร์เดียวกัน`,
-      surface.theme === 'light' && surface.bg === 'rgb(248, 250, 252)' && surface.header === 'rgb(255, 255, 255)', JSON.stringify(surface))
-    await real.context().close()
-
-    const p = await newPage(w, h, member)
-    await mockLibrary(p)
-    await p.goto(`${BASE}/member`)
+    const p = await newPage(w, h, member, 0, { theme: 'dark' })
+    await p.goto(BASE + '/member')
     await p.getByRole('heading', { name: 'สวัสดี มายด์', level: 1 }).waitFor()
-    await p.locator('.m-event').first().waitFor()
-    await p.locator('.file-card').first().waitFor()
-    const eventTitles = await p.locator('.m-event-title').allInnerTexts()
-    check(`[จริง] ${tag}: ทักด้วยชื่อเล่น และแสดงกิจกรรมที่จะมาถึง 5 รายการแรกจากข้อมูลจริง เรียงจากใกล้ที่สุด ไม่มีรายการที่ผ่านไปแล้ว`,
-      eventTitles.length === 5 && eventTitles[0] === 'ซ้อมทีม Valorant' && !eventTitles.includes('ประชุมเตรียมงานที่ผ่านมา') && !eventTitles.includes('สรุปผลการแข่งขัน'), eventTitles.join(' | '))
-    const firstEvent = await p.locator('.m-event').first().innerText()
-    check(`[จริง] ${tag}: กิจกรรมแสดงวันที่ไทยปี พ.ศ. เวลา 24 ชั่วโมง และสถานที่`,
-      new RegExp(`${Number(today.slice(0, 4)) + 543}`).test(firstEvent) && /18:00–20:00 น\./.test(firstEvent) && firstEvent.includes('ห้องชมรม ชั้น 2'), firstEvent.replace(/\n/g, ' / '))
-    check(`[จำลองคลัง] ${tag}: แสดงไฟล์ที่แก้ไขล่าสุด 5 รายการ พร้อมทางไปดูทั้งหมด และทางไปบัญชีของฉัน`,
-      (await p.locator('.file-card').count()) === 5 && (await p.locator('section[aria-labelledby="home-files"] a', { hasText: 'ดูทั้งหมด' }).getAttribute('href')) === '/member/files' &&
-      (await p.locator('a.m-card-link').getAttribute('href')) === '/member/account')
+    await p.getByRole('button', { name: 'เดือน', exact: true }).click()
+    await p.getByRole('button', { name: /ซ้อมทีม Valorant/ }).waitFor()
+    check(`[จริง] ${tag}: หน้าแรกแสดงเฉพาะปฏิทิน ไม่โหลดไฟล์ ข่าว หรือปุ่มบัญชีท้ายหน้า`,
+      (await p.locator('.m-home-calendar .month-grid').isVisible()) && (await p.locator('.file-card, .m-card-link, .news-card, .m-event').count()) === 0)
+    const surface = await p.evaluate(() => ({ theme: document.documentElement.dataset.theme, scheme: getComputedStyle(document.documentElement).colorScheme }))
+    check(`[จริง] ${tag}: ใช้ธีมมืดที่บันทึกไว้`, surface.theme === 'dark' && surface.scheme === 'dark', JSON.stringify(surface))
+    await p.getByRole('switch', { name: 'ธีมมืด' }).click()
+    check(`[จริง] ${tag}: สลับเป็นธีมสว่างได้`, (await p.evaluate(() => document.documentElement.dataset.theme)) === 'light')
     const text = await p.locator('body').innerText()
     check(`[จริง] ${tag}: ไม่มีตัวเลขทะเบียนสมาชิก ข้อมูลการเชื่อมต่อ ปุ่มซิงค์ สถานะ token หรือเมนูหลังบ้าน`,
       !/อัปเดตจาก Google|ซิงค์|token|แหล่งข้อมูล|ทีมงาน\b|สมาชิกทั้งหมด|ทั้งหมด \d+ คน/i.test(text.replace('ติดต่อทีมงาน', '')) && (await p.locator('.sidebar, .nav-link, .sync-row, .topbar').count()) === 0, '')
     const navLabels = await p.locator(w >= 900 ? '.m-nav a' : '.m-tabbar a').allInnerTexts()
-    check(`[จริง] ${tag}: เมนูมีสี่หน้า หน้าแรก / กิจกรรม / ไฟล์ชมรม / บัญชีของฉัน และบอกหน้าปัจจุบัน`,
-      navLabels.map((s) => s.trim()).join(' / ') === 'หน้าแรก / กิจกรรม / ไฟล์ชมรม / บัญชีของฉัน' &&
+    check(`[จริง] ${tag}: เมนูมีห้าหน้า หน้าแรก / กิจกรรม / ไฟล์ชมรม / ส่งงาน / บัญชีของฉัน และบอกหน้าปัจจุบัน`,
+      navLabels.map((s) => s.trim()).join(' / ') === 'หน้าแรก / กิจกรรม / ไฟล์ชมรม / ส่งงาน / บัญชีของฉัน' &&
       (await p.locator(w >= 900 ? '.m-nav a[aria-current="page"]' : '.m-tabbar a[aria-current="page"]').innerText()).trim() === 'หน้าแรก')
     if (w >= 900) {
       const box = await p.locator('.m-header').boundingBox()
       const main = await p.locator('.m-main').boundingBox()
       check(`[จริง] ${tag}: หัวเว็บเตี้ย ไม่มี sidebar ของหลังบ้าน และเนื้อหากว้างไม่เกินประมาณ 1200px`,
         box.height <= 64 && (await p.locator('.m-tabbar').isHidden()) && main.width >= 1100 && main.width <= 1200, `${box.height} / ${main.width}`)
-      const nav = { active: await contrast(p, '.m-nav a[aria-current="page"]'), idle: await contrast(p, '.m-nav a:not([aria-current])'), link: await contrast(p, '.m-card-head .text-link'), meta: await contrast(p, '.m-event-meta') }
+      const nav = { active: await contrast(p, '.m-nav a[aria-current="page"]'), idle: await contrast(p, '.m-nav a:not([aria-current])'), control: await contrast(p, '.m-home-calendar .button'), meta: await contrast(p, '.m-home-calendar .muted') }
       await p.locator('.m-nav a:not([aria-current])').first().hover()
       nav.hover = await contrast(p, '.m-nav a:not([aria-current])')
       check(`[จริง] ${tag}: contrast ของเมนู (ปกติ hover และหน้าปัจจุบัน) ลิงก์ และข้อความรอง ≥4.5:1`, Object.values(nav).every((v) => v >= 4.5), JSON.stringify(nav))
     } else {
       const bar = await p.locator('.m-tabbar').boundingBox()
-      check(`[จริง] ${tag}: หัวเว็บสั้น เมนูสี่หน้าอยู่ด้านล่างของจอ และเมนูบนหัวเว็บไม่แสดงซ้ำ`,
+      check(`[จริง] ${tag}: หัวเว็บสั้น เมนูห้าหน้าอยู่ด้านล่างของจอ และเมนูบนหัวเว็บไม่แสดงซ้ำ`,
         (await p.locator('.m-header').boundingBox()).height <= 60 && (await p.locator('.m-nav').isHidden()) && Math.round(bar.y + bar.height) === h && bar.width === w)
       const clear = await lastControlClear(p)
       check(`[จริง] ${tag}: เลื่อนลงสุดแล้วส่วนท้ายของเนื้อหาไม่ถูกเมนูด้านล่างบัง และยังกดถึง`, clear.ok, JSON.stringify(clear))
@@ -1004,88 +990,60 @@ try {
     await empty.context().close()
   }
 
-  // ---------- บัญชีของฉัน ----------
-  for (const [w, h] of [[1440, 900], [390, 844]]) {
-    const tag = `บัญชีของฉัน ${w}px`
-    const p = w === 1440 ? await newPage(w, h, member, 1) : await memberPage(w, h, '0065002', OWN)
-    await p.goto(`${BASE}/member/account`)
+  // ---------- บัญชีของฉัน: ติดต่อแบบเลือกแพลตฟอร์ม / รหัสชั่วคราว ----------
+  for (const [w,h] of [[1440,900],[390,844]]) {
+    const p = await memberPage(w,h,'0065002',READY)
+    await p.goto(BASE + '/member/account')
     await p.locator('.m-profile').waitFor()
     const profile = await p.locator('.m-profile').innerText()
-    check(`[จริง] ${tag}: แสดงชื่อ ชื่อเล่น รหัสนักศึกษา (คงเลขศูนย์นำหน้า) สถานะ และช่องทางติดต่อของตัวเอง`,
-      profile.includes('ณิชา ตัวอย่างสุข') && profile.includes('มายด์') && profile.includes('0065002') && profile.includes('ใช้งาน') && profile.includes(w === 1440 ? 'Discord: mind_sample' : 'แก้จากอุปกรณ์อื่น'), profile.replace(/\n/g, ' / '))
-    const whole = await p.locator('#main').innerText()
-    check(`[จริง] ${tag}: ไม่มีหมายเหตุของทีมงาน บทบาท หรือช่องให้แก้ชื่อ รหัสนักศึกษา บทบาท และสถานะ`,
-      !whole.includes('หมายเหตุภายใน') && !/บทบาท|สิทธิ์/.test(whole) && (await p.locator('#main select, #main input[type="text"]').count()) === 0)
-    if (w === 1440) {
-      // แก้ช่องทางติดต่อ (Worker จริง)
-      const edit = p.getByRole('button', { name: 'แก้ไขช่องทางติดต่อ' })
-      await edit.click()
-      check(`[จริง] ${tag}: กดแก้ไขช่องทางติดต่อแล้ว focus ไปที่ช่องกรอก พร้อมค่าเดิม`, (await p.evaluate(() => document.activeElement?.id)) === 'self-contact' && (await p.locator('#self-contact').inputValue()) === 'Discord: mind_sample')
-      await p.locator('#self-contact').fill('LINE: mind_new')
-      await p.getByRole('button', { name: 'บันทึก', exact: true }).click()
-      await p.getByText('บันทึกช่องทางติดต่อแล้ว').waitFor()
-      check(`[จริง] ${tag}: บันทึกช่องทางติดต่อสำเร็จ ค่าใหม่แสดงทันที และ focus กลับไปที่ปุ่มแก้ไข`,
-        (await p.locator('.m-contact').innerText()).includes('LINE: mind_new') && (await p.evaluate(() => document.activeElement?.textContent?.includes('แก้ไขช่องทางติดต่อ'))))
-      // รุ่นเก่า: แก้จากอีก session แล้วบันทึกจากหน้านี้
-      const other = await newPage(1280, 800, member, 3)
-      await other.goto(`${BASE}/member/account`)
-      const me = await apiAs(other, '/api/member/me')
-      await apiAs(other, '/api/member/me', { method: 'PATCH', body: { contact: 'แก้จากอุปกรณ์อื่น', expectedVersion: me.body.member.version } })
-      await other.context().close()
-      await p.getByRole('button', { name: 'แก้ไขช่องทางติดต่อ' }).click()
-      await p.locator('#self-contact').fill('ค่าที่พิมพ์ค้างไว้')
-      await p.getByRole('button', { name: 'บันทึก', exact: true }).click()
-      await p.locator('#self-contact-error').waitFor()
-      check(`[จริง] ${tag}: ข้อมูลถูกแก้จากที่อื่น: ไม่บันทึกทับ บอกค่าล่าสุด และสิ่งที่พิมพ์ไว้ยังอยู่ในช่อง`,
-        (await p.locator('#self-contact-error').innerText()).includes('ถูกแก้ไขจากที่อื่น') && (await p.locator('#self-contact-error').innerText()).includes('แก้จากอุปกรณ์อื่น') &&
-        (await p.locator('#self-contact').inputValue()) === 'ค่าที่พิมพ์ค้างไว้')
-      await p.getByRole('button', { name: 'ยกเลิก' }).click()
-
-      // เปลี่ยนรหัสผ่านเอง
-      await p.locator('#password-current').fill(READY)
-      await p.locator('#password-new').fill(READY)
-      await p.locator('#password-confirm').fill(READY)
-      await p.getByRole('button', { name: 'เปลี่ยนรหัสผ่าน', exact: true }).click()
-      const same = await p.locator('#password-new-error').innerText()
-      await p.locator('#password-new').fill(OWN)
-      await p.locator('#password-confirm').fill(OWN)
-      await p.getByRole('button', { name: 'เปลี่ยนรหัสผ่าน', exact: true }).click()
-      await p.getByText('เปลี่ยนรหัสผ่านแล้ว', { exact: true }).waitFor()
-      check(`[จริง] ${tag}: เปลี่ยนรหัสผ่านเองได้ รหัสใหม่ที่ซ้ำกับรหัสเดิมถูกแจ้งก่อนส่ง หลังสำเร็จช่องถูกล้างและยังใช้งานต่อได้`,
-        same === 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน' && (await p.locator('#password-current').inputValue()) === '' && (await apiAs(p, '/api/member/me')).status === 200)
-      // session อื่นของบัญชีนี้ (อุปกรณ์อื่น) ถูกยกเลิกเมื่อเปลี่ยนรหัสผ่าน
-      const elsewhere = await newPage(390, 844, member, 0)
-      await elsewhere.goto(`${BASE}/member`)
-      await elsewhere.waitForURL(`${BASE}/login?return=%2Fmember`)
-      check(`[จริง] ${tag}: หลังเปลี่ยนรหัสผ่าน อุปกรณ์อื่นที่เข้าสู่ระบบค้างไว้ถูกออกจากระบบ`, elsewhere.url() === `${BASE}/login?return=%2Fmember`)
-      await elsewhere.context().close()
-    }
-    const small = await smallTargets(p)
-    check(`[จริง] ${tag}: ไม่ล้นจอ และทุกส่วนที่กดได้สูง ≥44px`, (await noOverflow(p)) && small.length === 0, JSON.stringify(small))
-    if (w < 900) {
-      const clear = await lastControlClear(p)
-      check(`[จริง] ${tag}: ปุ่มท้ายฟอร์มและปุ่มออกจากระบบไม่ถูกเมนูด้านล่างบัง`, clear.ok, JSON.stringify(clear))
-      // ช่องกรอกที่ได้ focus ไม่ถูกหัวเว็บหรือเมนูบัง
-      await p.locator('#password-confirm').focus()
-      const visible = await p.locator('#password-confirm').evaluate((el) => {
-        const r = el.getBoundingClientRect()
-        const header = document.querySelector('.m-header').getBoundingClientRect().bottom
-        const bar = document.querySelector('.m-tabbar').getBoundingClientRect().top
-        return r.top >= header && r.bottom <= bar
-      })
-      check(`[จริง] ${tag}: ช่องกรอกที่ได้ focus อยู่ระหว่างหัวเว็บกับเมนูด้านล่าง ไม่ถูกบัง`, visible)
-      await p.evaluate(() => window.scrollTo(0, 0))
-    }
-    await shot(p, `member-account-${w}`, w >= 900)
+    check(`[จริง] บัญชี ${w}px: ชื่อ ชื่อเล่น รหัสนักศึกษา และสถานะของตนเอง ไม่มีหมายเหตุภายใน`,
+      profile.includes('ณิชา ตัวอย่างสุข') && profile.includes('0065002') && profile.includes('มายด์') && !profile.includes('หมายเหตุภายใน'))
+    const edit=p.getByRole('button',{name:'แก้ไขอีเมลและช่องทางติดต่อ',exact:true})
+    await edit.click()
+    let dialog=p.locator('dialog[open]')
+    await dialog.getByLabel('อีเมล',{exact:true}).fill('member-test@example.org')
+    await dialog.getByLabel('เพิ่มแพลตฟอร์ม').selectOption('instagram')
+    await dialog.getByRole('button',{name:'เพิ่ม',exact:true}).click()
+    await dialog.getByLabel('Instagram',{exact:true}).fill('club_test')
+    await dialog.getByRole('button',{name:'บันทึกข้อมูลติดต่อ',exact:true}).click()
+    await gone(dialog)
+    const self=(await apiAs(p,'/api/member/me')).body.member
+    check(`[จริง] บัญชี ${w}px: บันทึกอีเมลกับแพลตฟอร์มที่เลือก ไม่มีช่องทางที่ไม่ได้เพิ่ม`,
+      self.email==='member-test@example.org' && self.contacts.length===1 && self.contacts[0].platform==='instagram' && self.contacts[0].value==='club_test')
+    await edit.click()
+    dialog=p.locator('dialog[open]')
+    await dialog.getByRole('button',{name:'ลบช่องทาง Instagram'}).click()
+    // ทดสอบ conflict จริงจากอีก session และคงร่างไว้
+    const other=await newPage(1280,800,member,3)
+    await other.goto(BASE+'/member/account')
+    await apiAs(other,'/api/member/profile',{method:'PATCH',body:{email:'latest@example.org',contacts:[],expectedVersion:self.profileVersion}})
+    await other.context().close()
+    await dialog.getByLabel('อีเมล',{exact:true}).fill('draft@example.org')
+    await dialog.getByRole('button',{name:'บันทึกข้อมูลติดต่อ',exact:true}).click()
+    await dialog.getByRole('button',{name:'โหลดข้อมูลล่าสุด (แทนที่สิ่งที่กรอก)'}).waitFor()
+    check(`[จริง] บัญชี ${w}px: ไม่ทับการแก้จากอีก session และร่างยังอยู่`,
+      (await dialog.getByLabel('อีเมล',{exact:true}).inputValue())==='draft@example.org' && (await dialog.getByRole('button',{name:'บันทึกข้อมูลติดต่อ',exact:true}).isDisabled()))
+    await dialog.getByRole('button',{name:'ยกเลิก',exact:true}).click()
+    await p.locator('dialog[open]').last().getByRole('button',{name:'ทิ้งการแก้ไข',exact:true}).click()
+    await gone(p.locator('dialog[open]'))
+    const red=await p.getByRole('button',{name:'เปลี่ยนรหัสผ่าน',exact:true}).getAttribute('class')
+    await p.getByRole('button',{name:'เปลี่ยนรหัสผ่าน',exact:true}).click()
+    dialog=p.locator('dialog[open]')
+    check(`[จริง] บัญชี ${w}px: ปุ่มรหัสผ่านเป็นสีแดง อธิบายว่าต้องรับรหัสชั่วคราว และไม่มีฟอร์มเปลี่ยนเอง`,
+      red.includes('button-danger') && (await dialog.getByText('ผู้ดูแลออกรหัสผ่านชั่วคราวจากหน้าสมาชิก').isVisible()) && (await p.locator('input[type=password]').count())===0)
+    await dialog.getByRole('button',{name:'รับทราบ'}).click()
+    check(`[จริง] บัญชี ${w}px: ปิดกล่องแล้ว focus กลับปุ่มรหัสผ่าน และหน้าไม่ล้น`,
+      (await p.evaluate(()=>document.activeElement?.textContent)).includes('เปลี่ยนรหัสผ่าน') && await noOverflow(p))
+    await shot(p,`member-account-${w}`,w>=900)
     await p.context().close()
   }
 
   // ทุกหน้าของสมาชิก ทุกความกว้าง + แนวนอน
   for (const [w, h] of [[320, 568], [360, 740], [390, 844], [768, 1024], [1024, 768], [1440, 900], [844, 390]]) {
-    const p = await memberPage(w, h, '0065002', OWN)
+    const p = await memberPage(w, h, '0065002', READY)
     await mockLibrary(p)
     const problems = []
-    for (const [path, ready] of [['/member', '.file-card'], ['/member/activities', '.m-activity'], ['/member/files', '.file-card'], ['/member/files/file-sheet-0002', '.sheet-table'], ['/member/account', '.m-profile']]) {
+    for (const [path, ready] of [['/member', '.m-home-calendar'], ['/member/activities', '.m-activity'], ['/member/files', '.file-card'], ['/member/files/file-sheet-0002', '.sheet-table'], ['/member/account', '.m-profile']]) {
       await p.goto(BASE + path)
       await p.locator(ready).first().waitFor()
       if (!(await noOverflow(p))) problems.push(`${path}: ล้นจอ`)
@@ -1127,7 +1085,7 @@ try {
 
   // ---------- ขอบเขตสิทธิ์ที่หน้าเว็บ ----------
   {
-    const p = await memberPage(1280, 800, '0065002', OWN)
+    const p = await memberPage(1280, 800, '0065002', READY)
     for (const path of ['/', '/members', '/calendar', '/files', '/files/file-doc-0001', '/documents/new', '/forms', '/sources', '/team']) {
       await p.goto(BASE + path)
       await p.waitForURL(`${BASE}/member`)
@@ -1208,7 +1166,7 @@ try {
       (await p.locator('p.notice').innerText()) === 'ออกจากระบบแล้ว' && (await apiAs(p, '/api/session')).body?.member === null)
     await p.context().close()
 
-    const out = await memberPage(1440, 900, '0065002', OWN)
+    const out = await memberPage(1440, 900, '0065002', READY)
     await out.goto(`${BASE}/member`)
     await out.getByRole('heading', { name: /สวัสดี/ }).waitFor()
     // ออกจากระบบไม่สำเร็จ (เครือข่ายขาด): ต้องบอกและยังอยู่ในระบบ
@@ -1226,7 +1184,7 @@ try {
     await out.waitForURL(`${BASE}/login?return=%2Fmember%2Ffiles`)
     check('[จริง] ออกจากระบบสำเร็จ: เปิดหน้าของสมาชิกอีกไม่ได้ ถูกพาไปหน้าเข้าสู่ระบบพร้อมจำหน้าที่จะกลับ', out.url() === `${BASE}/login?return=%2Fmember%2Ffiles`)
     await out.locator('#login-username').fill('0065002')
-    await out.locator('#login-password').fill(OWN)
+    await out.locator('#login-password').fill(READY)
     await out.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await out.waitForURL(`${BASE}/member/files`)
     check('[จริง] เข้าสู่ระบบอีกครั้ง: กลับไปหน้าของสมาชิกที่ตั้งใจเปิด', out.url() === `${BASE}/member/files`)
@@ -1337,8 +1295,8 @@ try {
       await dialog.getByRole('button', { name: 'เสร็จสิ้น' }).click()
       dialog = p.locator('dialog[open]')
       await dialog.locator('.account-section .badge', { hasText: 'ต้องเปลี่ยนรหัสผ่าน' }).waitFor()
-      check(`[จริง] ${tag}: กลับมาที่รายละเอียดสมาชิกคนเดิม สถานะเป็น “ต้องเปลี่ยนรหัสผ่าน” มีปุ่มรีเซ็ตรหัสผ่านและปิดบัญชี และไม่มีรหัสผ่านค้างอยู่ในหน้า`,
-        (await dialog.getByRole('button', { name: 'รีเซ็ตรหัสผ่าน' }).isVisible()) && (await dialog.getByRole('button', { name: 'ปิดบัญชี' }).isVisible()) &&
+      check(`[จริง] ${tag}: กลับมาที่รายละเอียดสมาชิกคนเดิม สถานะเป็น “ต้องเปลี่ยนรหัสผ่าน” มีปุ่มรีเซ็ตรหัสผ่านโดยไม่มีปุ่มปิดบัญชีซ้ำ และไม่มีรหัสผ่านค้างอยู่ในหน้า`,
+        (await dialog.getByRole('button', { name: 'รีเซ็ตรหัสผ่าน' }).isVisible()) && (await dialog.getByRole('button', { name: 'ปิดบัญชี', exact: true }).count()) === 0 &&
         !(await p.locator('body').innerText()).includes(second) && (await dialog.locator('.account-section .notice-success').innerText()) === 'เปิดบัญชีของ “กฤตเมธ ตัวอย่างเกม” แล้ว')
       const list = await apiAs(p, '/api/members')
       check(`[จริง] ${tag}: รายชื่อสมาชิกจาก API ไม่มีรหัสผ่าน hash หรือ salt`, list.status === 200 && !list.text.includes(second) && !/argon2|password_hash|"hash"|salt/i.test(list.text))
@@ -1350,19 +1308,11 @@ try {
       check(`[จริง] ${tag}: สมาชิกเข้าสู่ระบบด้วยรหัสสุ่มที่ผู้ดูแลตั้งได้ และถูกบังคับเปลี่ยนรหัสทันที`, m.url() === `${BASE}/member/password`)
       const session = await apiAs(m, '/api/session')
 
-      // ปิดบัญชี
-      await dialog.getByRole('button', { name: 'ปิดบัญชี' }).click()
-      const confirm = p.locator('dialog[open]')
-      await confirm.getByRole('heading', { name: 'ปิดบัญชีของ “กฤตเมธ ตัวอย่างเกม”?' }).waitFor()
-      check(`[จริง] ${tag}: ปิดบัญชีต้องยืนยันก่อน บอกผลที่จะเกิด และ focus เริ่มที่ปุ่มยกเลิก`,
-        (await confirm.getByText('ข้อมูลในทะเบียนสมาชิกไม่ถูกลบหรือแก้ไข').isVisible()) && (await p.evaluate(() => document.activeElement?.textContent?.trim())) === 'ยกเลิก')
-      await confirm.getByRole('button', { name: 'ปิดบัญชี', exact: true }).click()
-      dialog = p.locator('dialog[open]')
-      await dialog.locator('.account-section .badge', { hasText: 'ปิดบัญชี' }).waitFor()
-      const after = await apiAs(m, '/api/session')
-      check(`[จริง] ${tag}: ปิดบัญชีแล้ว session ของสมาชิกใช้ไม่ได้ทันที ผลแสดงในกล่องรายละเอียด และปุ่มเปลี่ยนเป็นตั้งรหัสผ่านและเปิดบัญชีอีกครั้ง`,
-        session.body?.member?.studentId === '6500004' && after.body?.member === null && (await dialog.getByRole('button', { name: 'ตั้งรหัสผ่านและเปิดบัญชีอีกครั้ง' }).isVisible()) &&
-        (await dialog.locator('.account-section .notice-success').innerText()) === 'ปิดบัญชีของ “กฤตเมธ ตัวอย่างเกม” แล้ว')
+      // API เดิมยังรักษาการยกเลิก session แต่ไม่มีปุ่มซ้ำในรายละเอียด
+      const account=(await apiAs(p,`/api/members/${actors.plain.id}/account`)).body.account
+      const closed=await apiAs(p,`/api/members/${actors.plain.id}/account/disable`,{method:'POST',body:{expectedRevision:account.revision}})
+      const after=await apiAs(m,'/api/session')
+      check(`[จริง] ${tag}: API ปิดบัญชีเดิมยังยกเลิก session สมาชิกทันที`,closed.status===200 && after.body?.member===null)
       await m.context().close()
       await p.keyboard.press('Escape')
       await gone(p.locator('dialog[open]'))
@@ -1406,7 +1356,7 @@ try {
       (await dialog.locator('.account-section').innerText()).includes('รหัสนักศึกษาในทะเบียน (0065999) ไม่ตรงกับรหัสที่บัญชีนี้ใช้เข้าสู่ระบบ (0065002)') &&
       (await dialog.getByRole('button', { name: 'ยืนยันใช้รหัส 0065999 เข้าสู่ระบบ' }).isVisible()))
     const old = await newPage(390, 844)
-    await memberLogin(old, '0065002', OWN)
+    await memberLogin(old, '0065002', READY)
     await old.waitForURL(`${BASE}/member`)
     await old.goto(`${BASE}/member/account`)
     await old.locator('.m-profile').waitFor()
@@ -1422,7 +1372,7 @@ try {
     const after = await apiAs(old, '/api/session')
     await old.context().close()
     const fresh = await newPage(390, 844)
-    await memberLogin(fresh, '0065002', OWN)
+    await memberLogin(fresh, '0065002', READY)
     const oldRejected = await appears(fresh.locator('.login-card .form-alert'))
     await fresh.locator('#login-username').fill('0065999')
     await fresh.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()

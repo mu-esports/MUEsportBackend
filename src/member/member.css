@@ -1,5 +1,5 @@
 /* ---------- หน้าเข้าสู่ระบบและหน้าของสมาชิก ---------- */
-/* พื้นผิวสว่างชุดเดียวเสมอ: ไฟล์นี้โหลดหลัง styles.css และกำหนด token ครบทุกตัว จึงไม่รับค่าจากธีมมืดของหลังบ้าน
+/* ชุดสีสมาชิกในธีมสว่าง (ธีมมืดกำหนดด้านล่าง): ไฟล์นี้โหลดหลัง styles.css
    primary #1D4ED8 · พื้น #F8FAFC · surface ขาว · ข้อความ #0F172A · ข้อความรอง #475569 · เส้น #E2E8F0
    ขอบของช่องกรอกและปุ่มใช้ #64748B (4.8:1 บนพื้นขาว) เพื่อให้เห็นขอบเขตชัด ส่วนเส้นแบ่งการ์ดใช้ #E2E8F0 */
 :root[data-surface='member'] {
@@ -216,7 +216,7 @@
 .login-google-note svg { flex: none; margin-top: 3px; color: var(--accent-text); }
 
 
-/* จอแคบและ tablet แนวตั้ง: หัวเว็บสั้น เมนูสี่หน้าอยู่ด้านล่างของจอ (เมนูบนหัวเว็บต้องการความกว้างราว 900px) */
+/* จอแคบและ tablet แนวตั้ง: หัวเว็บสั้น เมนูห้าหน้าอยู่ด้านล่างของจอ */
 @media (max-width: 899px) {
   :root[data-surface='member'] { --m-header-height: 56px; --header-height: 56px; }
   .m-header-inner { gap: 8px; padding: 0 12px 0 16px; }
@@ -233,7 +233,7 @@
     inset: auto 0 0;
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     padding-bottom: env(safe-area-inset-bottom, 0px);
     border-top: 1px solid var(--border);
     background: var(--surface);
@@ -274,3 +274,52 @@
   :root[data-surface='member'] { --m-tabbar-height: 48px; }
   .m-tab { grid-auto-flow: column; justify-content: center; align-items: center; gap: 6px; }
 }
+
+/* Shared saved theme applies to login and member surfaces too. */
+:root[data-surface='member'][data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #090d16;
+  --surface: #0f172a;
+  --surface-muted: #182338;
+  --text: #e6ecf5;
+  --text-muted: #a8b5c9;
+  --border: #25324a;
+  --border-strong: #7385a3;
+
+  --accent: #1d4ed8;
+  /* บนพื้นมืด hover สว่างขึ้นเล็กน้อยให้เห็นชัด อักษรขาวยังได้ 5.17:1 */
+  --accent-hover: #2563eb;
+  --accent-active: #1e40af;
+  --accent-text: #93c5fd;
+  --accent-soft: #172554;
+  --accent-line: #60a5fa;
+  --hover: #1e3a6e;
+  --focus: #ffffff;
+
+  --header-bg: #0b1f3a;
+
+  --success-text: #93e2ad;
+  --success-bg: #163726;
+  --success-border: #2c6140;
+  --warning-text: #f2cf7c;
+  --warning-bg: #3a2d0d;
+  --warning-border: #6e571a;
+  --danger-text: #ffaba3;
+  --danger-bg: #41201d;
+  --danger-border: #80362f;
+  --neutral-bg: #253247;
+  --neutral-text: #d3dcea;
+  --backdrop: rgb(0 0 0 / 0.68);
+  --shadow-lg: 0 16px 40px rgb(0 0 0 / 0.55);
+ --m-shadow:0 1px 4px rgb(0 0 0 / .25);
+}
+.m-header .theme-switch,.login-theme .theme-switch {color:var(--text);}
+.m-header .theme-switch-track,.login-theme .theme-switch-track {background:var(--surface-muted);border-color:var(--border-strong);}
+.m-header .theme-switch:hover .theme-switch-track,.login-theme .theme-switch:hover .theme-switch-track {background:var(--hover);}
+.login-theme {position:absolute;top:12px;right:16px;}
+.login-page {position:relative;}
+.m-card > .button {margin-top:16px;}
+.m-header-inner {gap:12px;}
+.m-nav {gap:4px;}
+@media(min-width:900px) and (max-width:1150px) {.m-nav-link {padding:8px;font-size:.875rem;} .m-user {display:none;} .m-brand-name {font-size:1rem;}}

@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { CalendarDays, FolderOpen, Gamepad2, House, LogOut, TriangleAlert, UserRound } from 'lucide-react'
+import { CalendarDays, ClipboardCheck, FolderOpen, Gamepad2, House, LogOut, TriangleAlert, UserRound } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { CLUB_NAME } from '../config'
 import { useMemberSurface } from './surface'
+import { ThemeSwitch } from '../components/ThemeSwitch'
 
 interface NavItem {
   to: string
@@ -13,11 +14,12 @@ interface NavItem {
   icon: LucideIcon
 }
 
-// สี่หน้าของสมาชิก: ไม่มีเมนูของหลังบ้าน (รายชื่อสมาชิก ทีมงาน แหล่งข้อมูล หรือคำสั่งซิงค์)
+// เมนูสมาชิกไม่เปิดเผยเมนูจัดการของหลังบ้าน
 export const MEMBER_NAV: NavItem[] = [
   { to: '/member', label: 'หน้าแรก', icon: House },
   { to: '/member/activities', label: 'กิจกรรม', icon: CalendarDays },
   { to: '/member/files', label: 'ไฟล์ชมรม', icon: FolderOpen },
+  { to: '/member/tasks', label: 'ส่งงาน', icon: ClipboardCheck },
   { to: '/member/account', label: 'บัญชีของฉัน', icon: UserRound },
 ]
 
@@ -129,7 +131,7 @@ export function MemberLayout() {
             </nav>
             <div className="m-header-side">
               {member && <span className="m-user">{member.nickname || member.name}</span>}
-              <LogoutButton compact />
+              <ThemeSwitch /><LogoutButton compact />
             </div>
           </div>
         </header>

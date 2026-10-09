@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Check, CircleCheck, Copy, Dices, KeyRound, LoaderCircle, ShieldOff, Trash2, TriangleAlert } from 'lucide-react'
+import { Check, CircleCheck, Copy, Dices, KeyRound, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { PasswordField } from '../components/PasswordField'
 import { ACCOUNT_STATE_LABELS, accountsApi, generatePassword, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from '../data/accounts'
@@ -91,10 +91,6 @@ export function AccountSection({ member, isAdmin, notice, onAction }: { member: 
                 <KeyRound aria-hidden="true" size={16} />
                 รีเซ็ตรหัสผ่าน
               </button>
-              <button type="button" className="button button-danger-outline" data-return-focus="account-disable" onClick={() => onAction('disable')}>
-                <ShieldOff aria-hidden="true" size={16} />
-                ปิดบัญชี
-              </button>
             </>
           )}
           {account.state === 'disabled' && (
@@ -110,21 +106,9 @@ export function AccountSection({ member, isAdmin, notice, onAction }: { member: 
           )}
         </div>
       ) : (
-        <p className="field-hint">เปิดบัญชี ตั้งหรือรีเซ็ตรหัสผ่าน ปิดบัญชี และลบบัญชีเข้าสู่ระบบ ทำได้เฉพาะผู้ดูแลระบบ</p>
+        <p className="field-hint">เปิดบัญชีและรีเซ็ตรหัสผ่าน ทำได้เฉพาะผู้ดูแลระบบ</p>
       )}
 
-      {/* ลบบัญชีเป็นคนละเรื่องกับปิดบัญชีชั่วคราว: แยกออกมาอีกส่วน พร้อมบอกความต่าง */}
-      {isAdmin && has && (
-        <div className="account-delete">
-          <p className="field-hint">
-            ถ้าไม่ต้องการให้สมาชิกคนนี้มีบัญชีเข้าเว็บอีก ให้ลบบัญชีเข้าสู่ระบบ (ข้อมูลในทะเบียนยังอยู่) ถ้าต้องการหยุดใช้ชั่วคราว ใช้ “ปิดบัญชี”
-          </p>
-          <button type="button" className="button button-danger-outline" data-return-focus="account-delete" onClick={() => onAction('delete')}>
-            <Trash2 aria-hidden="true" size={16} />
-            ลบบัญชีเข้าสู่ระบบ
-          </button>
-        </div>
-      )}
     </section>
   )
 }

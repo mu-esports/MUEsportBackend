@@ -19,6 +19,8 @@ interface Options {
   idempotencyKey?: string
   /** ไม่แจ้งสถานะเซสชันหมดอายุเมื่อได้ 401 (ผู้เรียกจัดการเอง เช่น ตอนออกจากระบบ) */
   quiet401?: boolean
+  /** ชุดส่งงานหลายไฟล์ ให้ browser กำหนด multipart boundary */
+  form?: FormData
   /** ส่งไฟล์เป็นเนื้อหาของคำขอโดยตรง (เช่น รูปโปรไฟล์) ใช้แทน body */
   file?: Blob
   /** ยกเลิกคำขอที่ค้างอยู่ (เช่น ผู้ใช้ปิดกล่องระหว่างส่ง) */
@@ -26,10 +28,10 @@ interface Options {
 }
 
 /** เรียก API ของระบบกลาง คืนข้อมูลเมื่อ server ยืนยันสำเร็จเท่านั้น */
-export async function api<T>(path: string, { method = 'GET', body, idempotencyKey, quiet401, file, signal }: Options = {}): Promise<T> {
+export async function api<T>(path: string, { method = 'GET', body, idempotencyKey, quiet401, file, form, signal }: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (file) headers['Content-Type'] = file.type || 'application/octet-stream'
-  else if (body !== undefined) headers['Content-Type'] = 'application/json'
+  else if (!form && body !== undefined) headers['Content-Type'] = 'application/json'
   if (method !== 'GET' && csrfToken) headers['X-CSRF-Token'] = csrfToken
   if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
 
@@ -40,7 +42,7 @@ export async function api<T>(path: string, { method = 'GET', body, idempotencyKe
       headers,
       credentials: 'same-origin',
       cache: 'no-store',
-      body: file ?? (body === undefined ? undefined : JSON.stringify(body)),
+      body: form ?? file ?? (body === undefined ? undefined : JSON.stringify(body)),
       signal,
     })
   } catch {

@@ -346,8 +346,8 @@ describe('เปลี่ยนรหัสผ่านชั่วคราว�
     expect((await login('MUESPORT-2569', NEW)).status).toBe(200)
   })
 
-  it('การเดารหัสผ่านปัจจุบันผ่าน session ที่มีอยู่ถูกจำกัดจำนวนครั้งเหมือนการเข้าสู่ระบบ', async () => {
-    const member = await account('6512345')
+  it('การเดารหัสผ่านชั่วคราวผ่าน session ที่มีอยู่ถูกจำกัดจำนวนครั้งเหมือนการเข้าสู่ระบบ', async () => {
+    const member = await account('6512345', {mustChange:true})
     const session = await seedMemberSession(member.id)
     const statuses: number[] = []
     for (let i = 0; i < 7; i++) statuses.push((await call('/api/member/password', { method: 'POST', as: session, body: { currentPassword: `Wrong-Password-${i}`, newPassword: NEW } })).status)

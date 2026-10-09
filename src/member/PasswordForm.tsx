@@ -125,7 +125,7 @@ export function PasswordForm({ currentLabel, submitLabel, studentId, onChanged }
         autoComplete="new-password"
       />
       <div className="m-form-actions">
-        <button type="submit" className="button button-primary" aria-disabled={busy}>
+        <button type="submit" className="button button-danger" aria-disabled={busy}>
           {busy && <LoaderCircle aria-hidden="true" size={18} className="spin" />}
           {busy ? 'กำลังบันทึก…' : submitLabel}
         </button>

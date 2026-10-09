@@ -238,176 +238,21 @@ try {
     return dialog
   }
 
-  // ================= A. ลบบัญชีเข้าสู่ระบบของสมาชิก =================
-  {
-    const p = await newPage(1440, 900, actors.admin)
-    let dialog = await openMember(p, 'กฤตเมธ ตัวอย่างเกม')
-    const deleteButton = () => p.locator('dialog[open]').getByRole('button', { name: 'ลบบัญชีเข้าสู่ระบบ', exact: true })
-    check('[จริง] ผู้ดูแล: รายละเอียดสมาชิกที่มีบัญชีมีปุ่ม “ลบบัญชีเข้าสู่ระบบ” อยู่คนละส่วนกับปุ่ม “ปิดบัญชี” พร้อมคำอธิบายความต่าง',
-      (await deleteButton().isVisible()) && (await dialog.locator('.account-delete button').count()) === 1 &&
-      (await dialog.locator('.account-section > .button-row').getByRole('button', { name: 'ปิดบัญชี', exact: true }).count()) === 1 &&
-      (await dialog.locator('.account-section > .button-row').getByRole('button', { name: /ลบบัญชี/ }).count()) === 0 &&
-      (await dialog.locator('.account-delete').innerText()).includes('ถ้าต้องการหยุดใช้ชั่วคราว ใช้ “ปิดบัญชี”'))
-    await shot(p, 'admin-account-section-1440')
-
-    // กล่องยืนยัน: บอกว่าจะลบของใคร ผลที่เกิด และยกเลิกได้
-    await deleteButton().click()
-    let confirm = p.locator('dialog[open]')
-    await confirm.getByRole('heading', { name: 'ลบบัญชีเข้าสู่ระบบของ “กฤตเมธ ตัวอย่างเกม”?' }).waitFor()
-    const body = await confirm.innerText()
-    check('[จริง] กล่องยืนยันลบบัญชี: แสดงชื่อ ชื่อเล่น รหัสที่ใช้เข้าสู่ระบบ และสถานะบัญชีของคนที่จะลบ บอกว่าเข้าเว็บด้วยบัญชีเดิมไม่ได้ ทะเบียนยังอยู่ เปิดบัญชีใหม่ได้ภายหลัง และมีปุ่มยกเลิกกับยืนยัน',
-      body.includes('กฤตเมธ ตัวอย่างเกม (เมธ)') && body.includes('6500004') && body.includes('เปิดใช้งาน') && body.includes('เข้าเว็บด้วยบัญชีเดิมไม่ได้อีก') &&
-      body.includes('ข้อมูลในทะเบียนสมาชิก รูป และข้อมูลนักกีฬายังอยู่ครบ') && body.includes('เปิดบัญชีใหม่ให้ภายหลังได้') &&
-      (await confirm.getByRole('button', { name: 'ยกเลิก', exact: true }).isVisible()) && (await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).isVisible()) &&
-      (await p.locator('dialog[open]').count()) === 1)
-    check('[จริง] กล่องยืนยันลบบัญชี: focus เริ่มที่ปุ่ม “ยกเลิก” (ไม่ใช่ปุ่มลบ) และกล่องอยู่ในจอ', (await focusedText(p)) === 'ยกเลิก' && (await dialogFits(p)))
-    await shot(p, 'admin-delete-account-1440')
-    await p.keyboard.press('Escape')
-    await p.locator('dialog[open] .account-section').waitFor()
-    check('[จริง] กด Esc ในกล่องยืนยัน: ไม่ลบอะไร กลับมาที่รายละเอียดสมาชิก และ focus กลับไปที่ปุ่ม “ลบบัญชีเข้าสู่ระบบ”',
-      await focusIs(p, 'ลบบัญชีเข้าสู่ระบบ') && (await accountOf(p, actors.meth.id))?.state === 'active', await focusedText(p))
-    // ปุ่มยกเลิกให้ผลเดียวกัน
-    await deleteButton().click()
-    await p.locator('dialog[open]').getByRole('button', { name: 'ยกเลิก', exact: true }).click()
-    await p.locator('dialog[open] .account-section').waitFor()
-    check('[จริง] กด “ยกเลิก”: บัญชียังอยู่ และ focus กลับไปที่ปุ่มเดิม', await focusIs(p, 'ลบบัญชีเข้าสู่ระบบ') && (await accountOf(p, actors.meth.id))?.state === 'active', await focusedText(p))
-
-    // กล่องเก่ากับบัญชีที่เพิ่งถูกรีเซ็ตจากอีกแท็บ: ไม่ลบ แสดงสถานะล่าสุด แล้วต้องยืนยันใหม่
-    await deleteButton().click()
-    confirm = p.locator('dialog[open]')
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).waitFor()
-    const other = await newPage(1280, 800, actors.admin, 1)
-    await other.goto(`${BASE}/members`)
-    const reset = await apiAs(other, `/api/members/${actors.meth.id}/account/password`, { method: 'POST', body: { studentId: '6500004', password: TEMP } })
-    await other.context().close()
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).click()
-    const conflict = confirm.locator('.form-alert')
-    await conflict.waitFor()
-    const afterConflict = await accountOf(p, actors.meth.id)
-    check('[จริง] บัญชีถูกรีเซ็ตรหัสจากอีกแท็บหลังเปิดกล่อง: ไม่ลบ บอกเหตุผลในกล่อง (ไม่ถูกบัง) แสดงสถานะล่าสุด “ต้องเปลี่ยนรหัสผ่าน” และยังต้องกดยืนยันอีกครั้ง',
-      reset.status === 200 && (await conflict.innerText()).includes('ยังไม่ได้ลบบัญชี') && (await conflict.innerText()).includes('ด้านล่างเป็นสถานะล่าสุด') &&
-      (await confirm.locator('.account-identity .badge').innerText()) === 'ต้องเปลี่ยนรหัสผ่าน' && afterConflict?.state === 'must_change' &&
-      (await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).isEnabled()) &&
-      (await conflict.evaluate((el) => { const r = el.getBoundingClientRect(); const top = document.elementFromPoint(r.left + 10, r.top + 10); return el === top || el.contains(top) })), await conflict.innerText())
-    await shot(p, 'admin-delete-account-conflict-1440')
-
-    // สมาชิกที่เข้าสู่ระบบค้างไว้ (session ใหม่หลังรีเซ็ต) เปิดหน้าอยู่ระหว่างที่ผู้ดูแลลบบัญชี
-    const live = await newPage(390, 844, null)
-    const liveLogin = await loginWithPassword(live.request, BASE, '6500004', TEMP)
-    await live.goto(`${BASE}/member/password`)
-    await live.getByRole('heading', { level: 1 }).first().waitFor()
-
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).click()
-    dialog = p.locator('dialog[open]')
-    await dialog.locator('.account-section .notice-success').waitFor()
-    const deleted = await accountOf(p, actors.meth.id)
-    const registry = await memberOf(p, actors.meth.id)
-    check('[จริง] ยืนยันอีกครั้งด้วยสถานะล่าสุด: ลบบัญชีสำเร็จ กลับมาที่รายละเอียดพร้อมข้อความยืนยัน สถานะเป็น “ยังไม่ได้เปิดบัญชี” ปุ่มลบหายไป และมีปุ่มเปิดบัญชีใหม่',
-      (await dialog.locator('.account-section .notice-success').innerText()).includes('ลบบัญชีเข้าสู่ระบบของ “กฤตเมธ ตัวอย่างเกม” แล้ว') &&
-      (await dialog.locator('.account-section .badge').first().innerText()) === 'ยังไม่ได้เปิดบัญชี' && (await deleteButton().count()) === 0 &&
-      (await dialog.getByRole('button', { name: /^ตั้งรหัสผ่านและเปิดบัญชี/ }).isEnabled()) && deleted?.state === 'none' && deleted?.revision === null)
-    check('[จริง] หลังลบบัญชี: ทะเบียนสมาชิกของคนนั้นยังอยู่ครบ (ชื่อ ชื่อเล่น รหัสนักศึกษา สถานะ) และจำนวนสมาชิกเท่าเดิม',
-      registry?.name === 'กฤตเมธ ตัวอย่างเกม' && registry?.nickname === 'เมธ' && registry?.studentId === '6500004' && registry?.status === 'active' &&
-      (await apiAs(p, '/api/members')).body.members.length === Object.keys(actors).length - 2)
-    await shot(p, 'admin-account-deleted-1440')
-
-    // session ของสมาชิกคนนั้นใช้ไม่ได้ทันที และเข้าสู่ระบบด้วยรหัสเดิมไม่ได้
-    const liveSession = await apiAs(live, '/api/session')
-    const relogin = await loginWithPassword(live.request, BASE, '6500004', TEMP)
-    check('[จริง] หลังลบบัญชี: session ที่สมาชิกเข้าสู่ระบบค้างไว้ใช้ไม่ได้ทันที และเข้าสู่ระบบด้วยรหัสเดิมได้คำตอบเหมือนไม่มีบัญชี',
-      liveLogin.status() === 200 && liveSession.body?.member === null && relogin.status() === 401 && (await relogin.json()).error === 'invalid_credentials')
-    await live.context().close()
-
-    // เปิดบัญชีใหม่ตามขั้นตอนเดิม: session เก่าจากก่อนลบ (ที่เตรียมไว้ในฐานทดสอบ) ยังใช้ไม่ได้
-    await dialog.getByRole('button', { name: /^ตั้งรหัสผ่านและเปิดบัญชี/ }).click()
-    const setDialog = p.locator('dialog[open]')
-    await setDialog.locator('#account-password').fill('New-Temp-Pass-2026')
-    await setDialog.locator('#account-password-confirm').fill('New-Temp-Pass-2026')
-    await setDialog.getByRole('button', { name: 'เปิดบัญชี', exact: true }).click()
-    await setDialog.getByRole('button', { name: 'เสร็จสิ้น' }).click()
-    await p.locator('dialog[open] .account-section .notice-success').waitFor()
-    const old = await newPage(1280, 800, actors.meth, 0)
-    await old.goto(`${BASE}/member`)
-    await old.waitForURL(`${BASE}/login?return=%2Fmember`)
-    const fresh = await loginWithPassword(old.request, BASE, '6500004', 'New-Temp-Pass-2026')
-    check('[จริง] เปิดบัญชีใหม่หลังลบ: ทำได้ตามขั้นตอนเดิม session เก่าก่อนลบไม่กลับมาใช้ได้ และเข้าสู่ระบบด้วยรหัสชั่วคราวใหม่ได้ (ต้องเปลี่ยนรหัสผ่าน)',
-      (await accountOf(p, actors.meth.id))?.state === 'must_change' && old.url() === `${BASE}/login?return=%2Fmember` && fresh.status() === 200 && (await fresh.json()).mustChangePassword === true)
-    await old.context().close()
-    await p.keyboard.press('Escape')
-
-    // ---------- คำสั่งลบไม่ได้คำตอบ ----------
-    dialog = await openMember(p, 'ณิชา ตัวอย่างสุข')
-    await deleteButton().click()
-    confirm = p.locator('dialog[open]')
-    const deleteUrl = `${BASE}/api/members/${actors.mind.id}/account/delete`
-    const statusUrl = `${BASE}/api/members/${actors.mind.id}/account`
-    // (1) คำสั่งลบไปไม่ถึง server และตรวจสถานะก็ไม่ได้: ไม่สรุปผล และให้เฉพาะปุ่มตรวจสถานะ
-    await p.route(deleteUrl, (route) => route.abort())
-    await p.route(statusUrl, (route) => route.abort())
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).click()
-    await confirm.getByRole('button', { name: 'ตรวจสถานะอีกครั้ง' }).waitFor()
-    const unknownText = await confirm.locator('.form-alert').innerText()
-    check('[จริง+ตัดคำขอ] คำสั่งลบไม่ได้คำตอบและตรวจสถานะไม่ได้: ไม่บอกว่าสำเร็จหรือไม่สำเร็จ ไม่มีปุ่มลบให้กดซ้ำ มีเฉพาะ “ตรวจสถานะอีกครั้ง” ที่ไม่เปลี่ยนข้อมูล',
-      unknownText.includes('ยังยืนยันไม่ได้ว่าบัญชีถูกลบหรือไม่') && (await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).count()) === 0 &&
-      (await p.locator('.toast').count()) === 0, unknownText)
-    await shot(p, 'admin-delete-account-unknown-1440')
-    await p.unroute(statusUrl)
-    await confirm.getByRole('button', { name: 'ตรวจสถานะอีกครั้ง' }).click()
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).waitFor()
-    check('[จริง+ตัดคำขอ] ตรวจสถานะได้แล้ว: บอกตามจริงว่าบัญชียังอยู่ ยังไม่ได้ลบ และกดยืนยันลบได้อีกครั้ง',
-      (await confirm.locator('.form-alert').innerText()).includes('บัญชียังอยู่ ยังไม่ได้ลบ') && (await accountOf(p, actors.mind.id))?.state === 'active')
-    await p.unroute(deleteUrl)
-    // (2) server ลบแล้วแต่คำตอบหาย: หน้าเว็บอ่านสถานะจริงก่อนสรุป แล้วจึงบอกว่าลบแล้ว
-    await p.route(deleteUrl, async (route) => {
-      await route.fetch()
-      await route.abort()
-    })
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).click()
-    await p.locator('dialog[open] .account-section .notice-success').waitFor()
-    await p.unroute(deleteUrl)
-    check('[จริง+ตัดคำขอ] server ลบแล้วแต่คำตอบหาย: หน้าเว็บอ่านสถานะจริงก่อน แล้วจึงบอกว่าลบแล้ว (ยืนยันจากสถานะล่าสุด)',
-      (await p.locator('dialog[open] .account-section .notice-success').innerText()).includes('ยืนยันจากสถานะล่าสุดของระบบ') && (await accountOf(p, actors.mind.id))?.state === 'none')
-    // โปรไฟล์นักกีฬาของคนที่ถูกลบบัญชียังอยู่
-    check('[จริง] ลบบัญชีเข้าสู่ระบบไม่ลบโปรไฟล์นักกีฬาของคนนั้น', (await memberOf(p, actors.mind.id))?.athlete?.game === 'Valorant')
-    await p.keyboard.press('Escape')
-
-    // สมาชิกที่ไม่มีบัญชี: ไม่มีปุ่มลบ
-    dialog = await openMember(p, 'ชลธิชา ทดลองใจ')
-    check('[จริง] สมาชิกที่ยังไม่ได้เปิดบัญชี: ไม่มีปุ่ม “ลบบัญชีเข้าสู่ระบบ”', (await deleteButton().count()) === 0 && (await dialog.locator('.account-delete').count()) === 0)
+  // ================= A. รายละเอียดสมาชิก: ไม่มีคำสั่งลบ/ปิดซ้ำ =================
+  for(const [w,h,theme] of [[1440,900,'light'],[390,844,'light'],[360,740,'dark']]) {
+    const p=await newPage(w,h,actors.admin,0,{theme})
+    const dialog=await openMember(p,'กฤตเมธ ตัวอย่างเกม')
+    check(`[จริง] รายละเอียดสมาชิก ${w}px: มีรีเซ็ตรหัสและคำสั่งลบข้อมูล/พักที่ด้านล่างเท่านั้น`,
+      (await dialog.getByRole('button',{name:'รีเซ็ตรหัสผ่าน',exact:true}).count())===1 &&
+      (await dialog.getByRole('button',{name:'ลบข้อมูลสมาชิก',exact:true}).count())===1 &&
+      (await dialog.getByRole('button',{name:'พักการใช้งาน',exact:true}).count())===1 &&
+      (await dialog.getByRole('button',{name:/^(ปิดบัญชี|ลบบัญชีเข้าสู่ระบบ)$/}).count())===0)
+    check(`[จริง] รายละเอียดสมาชิก ${w}px: ไม่ล้นจอและปุ่มสูงอย่างน้อย 44px`,
+      await noOverflow(p) && (await smallTargets(p,'dialog[open]')).length===0)
+    await shot(p,`member-actions-${w}-${theme}`)
     await p.context().close()
   }
-  {
-    // ทีมงานทั่วไป: เห็นสถานะบัญชี แต่ไม่มีปุ่มลบ และ server ปฏิเสธคำสั่งลบ
-    const p = await newPage(1440, 900, actors.staff)
-    const dialog = await openMember(p, 'ภูมิ ทดสอบระบบ')
-    const account = await accountOf(p, actors.phum.id)
-    const tried = await apiAs(p, `/api/members/${actors.phum.id}/account/delete`, { method: 'POST', body: { expectedRevision: account.revision } })
-    check('[จริง] ทีมงานทั่วไป (ไม่ใช่ผู้ดูแล): ไม่มีปุ่มลบบัญชี มีคำอธิบายว่าทำได้เฉพาะผู้ดูแล และเรียก API ลบตรง ๆ ได้ 403 โดยบัญชียังอยู่',
-      (await dialog.getByRole('button', { name: /ลบบัญชี/ }).count()) === 0 && (await dialog.getByText('ลบบัญชีเข้าสู่ระบบ ทำได้เฉพาะผู้ดูแลระบบ').isVisible()) &&
-      tried.status === 403 && tried.body?.error === 'forbidden' && (await accountOf(p, actors.phum.id))?.state === 'must_change')
-    await p.context().close()
-    // สมาชิกเรียก API ลบของตัวเอง: ไม่ได้
-    const m = await newPage(390, 844, actors.mind, 0)
-    await m.goto(`${BASE}/login`)
-    const anonymous = await apiAs(m, `/api/members/${actors.phum.id}/account/delete`, { method: 'POST', body: { expectedRevision: 'x' } })
-    check('[จริง] ผู้ที่ไม่มี session ที่ใช้ได้ (session ของบัญชีที่ถูกลบแล้ว) เรียก API ลบบัญชี: ได้ 401', anonymous.status === 401)
-    await m.context().close()
-  }
-  // กล่องยืนยันลบบัญชีที่จอแคบและธีมมืด
-  for (const [w, h, theme] of [[390, 844, 'light'], [360, 740, 'light'], [1440, 900, 'dark']]) {
-    const p = await newPage(w, h, actors.admin, 0, { theme })
-    const dialog = await openMember(p, 'ภูมิ ทดสอบระบบ')
-    const sectionSmall = w < 1024 ? await smallTargets(p, 'dialog[open]') : []
-    await dialog.getByRole('button', { name: 'ลบบัญชีเข้าสู่ระบบ', exact: true }).click()
-    const confirm = p.locator('dialog[open]')
-    await confirm.getByRole('button', { name: 'ยืนยันลบบัญชี', exact: true }).waitFor()
-    const small = w < 1024 ? await smallTargets(p, 'dialog[open]') : []
-    const dark = theme === 'dark' ? { danger: await contrast(p, 'dialog[open] .button-danger'), text: await contrast(p, 'dialog[open] .bulleted li'), label: await contrast(p, 'dialog[open] .account-identity dt') } : null
-    check(`[จริง] กล่องยืนยันลบบัญชี ${w}px${theme === 'dark' ? ' ธีมมืด' : ''}: อยู่ในจอ ไม่ล้น${w < 1024 ? ' ปุ่มทั้งหมดสูง ≥44px' : ''}${dark ? ' และ contrast ของข้อความและปุ่มลบ ≥4.5:1' : ''}`,
-      (await dialogFits(p)) && (await noOverflow(p)) && small.length === 0 && sectionSmall.length === 0 && (!dark || Object.values(dark).every((v) => v >= 4.5)), JSON.stringify({ small, sectionSmall, dark }))
-    await shot(p, `admin-delete-account-${w}${theme === 'dark' ? '-dark' : ''}`)
-    await p.context().close()
-  }
+  // การลบบัญชีเดิมและ guard ยังคงตรวจใน test/account-delete.test.ts
 
   // ================= B. หมวด Google Docs / Sheets / Forms ของไฟล์ชมรม (คลังจำลอง) =================
   const CATEGORY_LABELS = ['ทั้งหมด', 'Google Docs', 'Google Sheets', 'Google Forms']

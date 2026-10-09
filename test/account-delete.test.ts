@@ -221,8 +221,9 @@ describe('กันกล่องยืนยันเก่าและคำ�
     expect(await accountRow(target.id)).toBeNull()
   })
 
-  it('การเข้าสู่ระบบของสมาชิกไม่เปลี่ยนรุ่นของบัญชี แต่การเปลี่ยนรหัสผ่านเองเปลี่ยน', async () => {
+  it('การเข้าสู่ระบบของสมาชิกไม่เปลี่ยนรุ่นของบัญชี แต่การเปลี่ยนรหัสชั่วคราวเปลี่ยน', async () => {
     const target = await memberWithAccount('6500001')
+    await env.DB.prepare('UPDATE member_accounts SET must_change_password=1 WHERE member_id=?').bind(target.id).run()
     const before = await revisionOf(target.id)
     const session = await login('6500001', MEMBER_PASSWORD)
     expect(session.status).toBe(200)

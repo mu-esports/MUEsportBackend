@@ -4,6 +4,7 @@ import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { Gamepad2, Info, LoaderCircle, LogIn, ShieldX, TriangleAlert } from 'lucide-react'
 import { loginMember } from '../auth/member-password'
 import { useAuth } from '../auth/AuthProvider'
+import { ThemeSwitch } from '../components/ThemeSwitch'
 import { PasswordField } from '../components/PasswordField'
 import { Field, fieldAria } from '../components/ui'
 import { CLUB_NAME } from '../config'
@@ -32,7 +33,7 @@ const lowerAscii = (value: string) => value.replace(/[A-Z]/g, (letter) => letter
 function LoginShell({ children }: { children: ReactNode }) {
   useMemberSurface()
   return (
-    <div className="login-page">
+    <div className="login-page"><div className="login-theme"><ThemeSwitch /></div>
       <main className="login-main" id="main">
         <p className="login-brand">
           <span className="m-logo" aria-hidden="true">

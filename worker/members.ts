@@ -30,6 +30,8 @@ const toMember = (row: MemberRow) => ({
   role: row.role,
   status: row.status,
   contact: row.contact,
+  email: row.profile_email ?? '',
+  contacts: JSON.parse(row.profile_contacts ?? '[]'),
   note: row.note,
   addedAt: row.added_at,
   version: row.version,

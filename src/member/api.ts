@@ -10,6 +10,9 @@ export interface MemberSelf {
   loginId: string | null
   status: 'active' | 'suspended'
   contact: string
+  email: string
+  contacts: import('../lib/contacts').ContactChannel[]
+  profileVersion: number
   version: number
   /** false = ตอนนี้แก้ช่องทางติดต่อจากเว็บไม่ได้ ต้องให้ทีมงานแก้ */
   contactEditable: boolean
@@ -34,6 +37,7 @@ export const MAX_PASSWORD_LENGTH = 128
 
 export const memberApi = {
   me: async () => (await api<{ member: MemberSelf }>('/api/member/me')).member,
+  updateProfile: (email: string, contacts: import('../lib/contacts').ContactChannel[], expectedVersion: number) => api<{ok:true}>('/api/member/profile', {method:'PATCH',body:{email,contacts,expectedVersion}}),
   updateContact: async (contact: string, expectedVersion: number) =>
     (await api<{ member: MemberSelf }>('/api/member/me', { method: 'PATCH', body: { contact, expectedVersion } })).member,
   changePassword: async (currentPassword: string, newPassword: string) => {

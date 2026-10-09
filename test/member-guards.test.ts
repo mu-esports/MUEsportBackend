@@ -225,7 +225,7 @@ describe('สมาชิกเห็นและแก้ได้เฉพา�
     const body = await data(await call('/api/member/me', { as: member }))
     expect(body).toEqual({
       // photoVersion = รุ่นของรูปโปรไฟล์ของตัวเอง (null = ยังไม่มีรูป) ไม่มีเนื้อรูปและไม่มีข้อมูลนักกีฬาหรือข้อมูลภายในอื่น
-      member: { name: 'ก้อง ทดสอบ', nickname: 'ก้อง', studentId: '6511111', loginId: '6511111', status: 'active', contact: 'line: kong', version: 1, contactEditable: true, passwordChangedAt: null, photoVersion: null },
+      member: { name: 'ก้อง ทดสอบ', nickname: 'ก้อง', studentId: '6511111', loginId: '6511111', status: 'active', contact: 'line: kong', email:'', contacts:[], profileVersion:1, version: 1, contactEditable: true, passwordChangedAt: null, photoVersion: null },
     })
     expect(JSON.stringify(body)).not.toContain('หมายเหตุภายใน')
   })

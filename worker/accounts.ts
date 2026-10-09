@@ -49,6 +49,9 @@ export interface MemberAccountRow {
   /** รุ่นของบัญชี (ค่าสุ่ม เปลี่ยนเมื่อบัญชีถูกตั้งรหัสใหม่ ปิด เปลี่ยนรหัสเข้าสู่ระบบ หรือสร้างใหม่) */
   account_revision: string | null
   /** รุ่นของรูปโปรไฟล์ (null = ไม่มีรูป) ตัวรูปไม่ถูกอ่านมากับรายชื่อ */
+  profile_email?: string | null
+  profile_contacts?: string | null
+  profile_version?: number | null
   photo_version: string | null
   /** โปรไฟล์นักกีฬาของคนนี้ (null = ไม่ได้เป็นนักกีฬา) */
   athlete_game: string | null
@@ -59,10 +62,10 @@ export interface MemberAccountRow {
 export const MEMBER_WITH_ACCOUNT = `
   SELECT m.*, a.login_id AS account_login_id, a.status AS account_status, a.must_change_password AS account_must_change,
          a.password_set_at AS account_password_set_at, a.last_login_at AS account_last_login_at, a.revision AS account_revision,
-         p.version AS photo_version, t.game AS athlete_game, t.status AS athlete_status
+         pr.email AS profile_email, pr.contacts_json AS profile_contacts, pr.version AS profile_version, p.version AS photo_version, t.game AS athlete_game, t.status AS athlete_status
     FROM members m LEFT JOIN member_accounts a ON a.member_id = m.id
     LEFT JOIN member_photos p ON p.member_id = m.id
-    LEFT JOIN athletes t ON t.member_id = m.id`
+    LEFT JOIN athletes t ON t.member_id = m.id LEFT JOIN member_profiles pr ON pr.member_id=m.id`
 
 export type AccountState = 'none' | 'must_change' | 'active' | 'disabled'
 
@@ -414,8 +417,8 @@ interface SelfRow extends MemberAccountRow {
 const getSelf = (env: AppEnv, id: string) =>
   env.DB.prepare(`SELECT m.*, a.login_id AS account_login_id, a.status AS account_status, a.must_change_password AS account_must_change,
                          a.password_set_at AS account_password_set_at, a.last_login_at AS account_last_login_at, a.password_set_by AS account_password_set_by,
-                         a.revision AS account_revision, p.version AS photo_version, NULL AS athlete_game, NULL AS athlete_status
-                    FROM members m JOIN member_accounts a ON a.member_id = m.id LEFT JOIN member_photos p ON p.member_id = m.id WHERE m.id = ?`).bind(id).first<SelfRow>()
+                         a.revision AS account_revision, pr.email AS profile_email, pr.contacts_json AS profile_contacts, pr.version AS profile_version, p.version AS photo_version, NULL AS athlete_game, NULL AS athlete_status
+                    FROM members m JOIN member_accounts a ON a.member_id = m.id LEFT JOIN member_photos p ON p.member_id = m.id LEFT JOIN member_profiles pr ON pr.member_id=m.id WHERE m.id = ?`).bind(id).first<SelfRow>()
 
 /** ช่องทางติดต่อของสมาชิกที่เป็นสำเนาจากชีต แก้ได้เมื่อเว็บเขียนชีตได้และชีตมีคอลัมน์ช่องทางติดต่อ */
 async function contactEditable(env: AppEnv, row: MemberAccountRow): Promise<boolean> {
@@ -434,6 +437,9 @@ const selfView = async (env: AppEnv, row: SelfRow) => ({
   loginId: row.account_login_id,
   status: row.status,
   contact: row.contact,
+  email: row.profile_email ?? '',
+  contacts: JSON.parse(row.profile_contacts ?? '[]'),
+  profileVersion: row.profile_version ?? 1,
   version: row.version,
   contactEditable: await contactEditable(env, row),
   passwordChangedAt: row.account_password_set_by === null ? row.account_password_set_at : null,
@@ -496,10 +502,11 @@ async function changePassword(ctx: Ctx): Promise<Response> {
   const current = typeof body.currentPassword === 'string' ? body.currentPassword : ''
   if (!current) throw invalid('กรอกรหัสผ่านปัจจุบัน', 'currentPassword')
   const id = session.member.id
-  const account = await ctx.env.DB.prepare('SELECT a.login_id, a.password_hash, m.student_id FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.member_id = ?')
+  const account = await ctx.env.DB.prepare('SELECT a.login_id, a.password_hash, a.must_change_password, m.student_id FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.member_id = ?')
     .bind(id)
-    .first<{ login_id: string; password_hash: string; student_id: string }>()
+    .first<{ login_id: string; password_hash: string; must_change_password: number; student_id: string }>()
   if (!account) throw new HttpError(401, 'unauthenticated', 'ยังไม่ได้เข้าสู่ระบบ หรือเซสชันหมดอายุแล้ว')
+  if (account.must_change_password !== 1) throw new HttpError(403, 'admin_reset_required', 'ติดต่อผู้ดูแลเพื่อรับรหัสผ่านชั่วคราวก่อนเปลี่ยนรหัสผ่าน')
   const next = newPassword(body, 'newPassword', 'รหัสผ่านใหม่', [account.login_id, account.student_id])
   if (normalizePassword(next) === normalizePassword(current)) throw invalid('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน', 'newPassword')
 
@@ -518,7 +525,7 @@ async function changePassword(ctx: Ctx): Promise<Response> {
   const now = nowIso()
   const fresh = await newMemberSession(ctx.env, id, ctx.url, hash)
   const changed = await ctx.env.DB.batch([
-    ctx.env.DB.prepare("UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ?, revision = ? WHERE member_id = ? AND password_hash = ? AND status = 'active'").bind(hash, now, now, newRevision(), id, account.password_hash),
+    ctx.env.DB.prepare("UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ?, revision = ? WHERE member_id = ? AND password_hash = ? AND status = 'active' AND must_change_password = 1").bind(hash, now, now, newRevision(), id, account.password_hash),
     ctx.env.DB.prepare('DELETE FROM member_sessions WHERE member_id = ? AND EXISTS (SELECT 1 FROM member_accounts WHERE member_id = ? AND password_hash = ?)').bind(id, id, hash),
     fresh.insert,
   ])

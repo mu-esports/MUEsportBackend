@@ -13,6 +13,7 @@ export const ORIGIN = 'https://staff.example.test'
 export const CLUB_EMAIL = 'muesport2567@gmail.com'
 
 const TABLES = [
+  'task_file_chunks', 'task_files', 'task_submissions', 'task_units', 'task_assignees', 'tasks', 'member_profiles',
   'club_news',
   'member_deletions',
   'athletes', 'member_photos', 'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
@@ -136,8 +137,9 @@ export async function call(path: string, options: CallOptions = {}): Promise<Res
     headers.set('Origin', ORIGIN)
     if (options.as) headers.set('X-CSRF-Token', options.as.csrf)
   }
-  let body: string | Uint8Array | ReadableStream<Uint8Array> | undefined
-  if (options.body instanceof Uint8Array || options.body instanceof ReadableStream) {
+  let body: string | Uint8Array | ReadableStream<Uint8Array> | FormData | undefined
+  if (options.body instanceof FormData) body = options.body
+  else if (options.body instanceof Uint8Array || options.body instanceof ReadableStream) {
     // เนื้อหาแบบไฟล์ (เช่น รูปโปรไฟล์): ผู้เรียกกำหนด Content-Type เอง
     body = options.body
   } else if (options.body !== undefined) {

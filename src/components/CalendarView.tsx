@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import type { ReactNode, RefObject } from 'react'
+import type { CSSProperties, ReactNode, RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, CalendarX, ChevronLeft, ChevronRight, Clock, List, MapPin } from 'lucide-react'
 import type { ClubEvent } from '../data/types'
@@ -7,6 +7,7 @@ import {
   addMonths, dateOf, eventsOnDate, eventTimeLabel, formatDateLong, formatDateWithWeekday,
   formatEventRange, formatMonth, monthGrid, monthOf, today, WEEKDAYS_SHORT,
 } from '../lib/datetime'
+import { calendarSpans } from '../lib/calendar-spans'
 import { EmptyState } from './ui'
 
 export type CalendarMode = 'month' | 'list'
@@ -140,8 +141,13 @@ export function CalendarView({
                 {w}
               </div>
             ))}
-            {days.map((day) => {
+            {Array.from({length:days.length/7},(_,i)=>days.slice(i*7,i*7+7)).map(week=>{
+              const spans=calendarSpans(events,week)
+              const lanes=spans.reduce((n,s)=>Math.max(n,s.lane+1),0)
+              return <div className="month-week" key={week[0]} style={{'--span-lanes':lanes} as CSSProperties}>
+              {week.map((day) => {
               const dayEvents = byDay.get(day) ?? []
+              const singleEvents=dayEvents.filter(e=>dateOf(e.start)===dateOf(e.end))
               const isToday = day === todayDate
               const classes = [
                 'month-cell',
@@ -168,7 +174,7 @@ export function CalendarView({
                     {dayEvents.length > 0 && <span className="month-day-count">{dayEvents.length} รายการ</span>}
                   </button>
                   <ul className="month-chips">
-                    {dayEvents.slice(0, MAX_CHIPS).map((e) => (
+                    {singleEvents.slice(0, MAX_CHIPS).map((e) => (
                       <li key={e.id}>
                         <EventTarget {...eventProps} id={e.id} className={`chip ${e.allDay ? 'chip-allday' : ''}`}>
                           <span className="chip-time">
@@ -179,21 +185,24 @@ export function CalendarView({
                         </EventTarget>
                       </li>
                     ))}
-                    {dayEvents.length > MAX_CHIPS && (
+                    {singleEvents.length > MAX_CHIPS && (
                       <li>
                         <button
                           type="button"
                           className="chip-more"
-                          aria-label={`อีก ${dayEvents.length - MAX_CHIPS} รายการ ดูกำหนดการทั้งหมดของ${formatDateLong(day)}`}
+                          aria-label={`อีก ${singleEvents.length - MAX_CHIPS} รายการ ดูกำหนดการทั้งหมดของ${formatDateLong(day)}`}
                           onClick={() => openDayList(day)}
                         >
-                          อีก {dayEvents.length - MAX_CHIPS} รายการ
+                          อีก {singleEvents.length - MAX_CHIPS} รายการ
                         </button>
                       </li>
                     )}
                   </ul>
                 </div>
               )
+            })}
+              <div className="month-span-layer">{spans.map(span=><div key={span.event.id} className="month-span" style={{gridColumn:`${span.from+1} / ${span.to+2}`,gridRow:span.lane+1}}><EventTarget {...eventProps} id={span.event.id} className={`month-span-target ${span.continuesBefore?'continues-before':''} ${span.continuesAfter?'continues-after':''}`}><span title={`${span.event.title} · ${formatEventRange(span.event)}`}>{span.continuesBefore?'← ':''}{span.event.title}{span.continuesAfter?' →':''}</span><span className="visually-hidden">{formatEventRange(span.event)}</span></EventTarget></div>)}</div>
+              </div>
             })}
           </div>
 

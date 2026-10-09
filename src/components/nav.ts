@@ -1,4 +1,4 @@
-import { CalendarDays, ClipboardList, Database, FolderOpen, LayoutDashboard, Newspaper, ShieldCheck, Swords, Users } from 'lucide-react'
+import { CalendarDays, ClipboardCheck, ClipboardList, Database, FolderOpen, LayoutDashboard, Newspaper, ShieldCheck, Swords, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { IS_DEMO } from '../mode'
@@ -28,6 +28,7 @@ export const NAV: NavItem[] = [
   { to: '/members', label: 'สมาชิก', icon: Users, shortcut: 'สมาชิก' },
   { to: '/athletes', label: 'นักกีฬา', icon: Swords, liveOnly: true },
   { to: '/calendar', label: 'ปฏิทิน', icon: CalendarDays, shortcut: 'ปฏิทินชมรม' },
+  { to: '/tasks', label: 'มอบหมายงาน', icon: ClipboardCheck, liveOnly: true },
   { to: '/news', label: 'ข่าวและกิจกรรม', icon: Newspaper, liveOnly: true },
   { to: '/files', label: 'ไฟล์ชมรม', icon: FolderOpen, liveOnly: true, shortcut: 'ไฟล์ชมรม', also: ['/documents'] },
   { to: '/forms', label: 'ฟอร์ม', icon: ClipboardList, liveOnly: true },

@@ -1,3 +1,4 @@
+import { CONTACT_PLATFORMS } from '../lib/contacts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ExternalLink, ImagePlus, Pencil, Search, SearchX, Trash2, TriangleAlert, UserPlus, Users } from 'lucide-react'
@@ -429,7 +430,7 @@ export function MembersPage() {
             </div>
             <div>
               <dt>ช่องทางติดต่อ</dt>
-              <dd>{detail.contact || <span className="muted">ไม่ได้ระบุ</span>}</dd>
+              <dd>{detail.contact || <span className="muted">ไม่ได้ระบุ</span>}</dd></div><div><dt>อีเมลสมาชิก</dt><dd className="break-word">{detail.email||<span className="muted">ไม่ได้ระบุ</span>}</dd></div><div><dt>ช่องทางที่สมาชิกเพิ่ม</dt><dd>{detail.contacts?.length?<ul className="profile-contacts">{detail.contacts.map(c=><li key={c.platform}><strong>{CONTACT_PLATFORMS[c.platform]}</strong><span className="break-word">{c.value}</span></li>)}</ul>:<span className="muted">ไม่ได้ระบุ</span>}</dd>
             </div>
             {!IS_DEMO && (
               <div>

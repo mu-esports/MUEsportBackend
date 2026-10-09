@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { argon2id } from '@noble/hashes/argon2.js'
 
 const TABLES = [
+  'task_file_chunks', 'task_files', 'task_submissions', 'task_units', 'task_assignees', 'tasks', 'member_profiles',
   'club_news',
   'member_deletions',
   'athletes', 'member_photos', 'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
