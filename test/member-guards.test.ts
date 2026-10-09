@@ -23,6 +23,7 @@ const STAFF_ROUTES: [string, string][] = [
 ]
 
 const MEMBER_ROUTES: [string, string][] = [
+  ['GET', '/api/member/calendar'], ['GET', '/api/member/news'],
   ['GET', '/api/member/me'], ['PATCH', '/api/member/me'], ['GET', '/api/member/events'], ['POST', '/api/member/password'],
 ]
 

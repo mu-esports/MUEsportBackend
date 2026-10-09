@@ -133,7 +133,7 @@ export function MemberLayout() {
             </div>
           </div>
         </header>
-        <main id="main" className="m-main" tabIndex={-1}>
+        <main id="main" className="m-main page-enter" tabIndex={-1} key={pathname}>
           <Outlet />
         </main>
       </LeavingProvider>

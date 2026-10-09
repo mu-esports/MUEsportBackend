@@ -10,6 +10,9 @@ import { dateOf, formatDateLong, formatEventRange, now, sortEvents, today } from
 import { memberApi } from './api'
 import type { MemberEvent } from './api'
 import { MemberPageHeader } from './MemberLayout'
+import { MemberCalendar } from './MemberCalendar'
+import { MemberNewsFeed } from '../news/NewsFeed'
+import { MemberEventDialog } from './MemberEventDialog'
 
 type Loaded<T> = { state: 'loading' } | { state: 'error'; message: string } | { state: 'unavailable'; message: string } | { state: 'ready'; data: T }
 
@@ -73,6 +76,7 @@ export function MemberHomePage() {
   const [events, setEvents] = useState<Loaded<MemberEvent[]>>({ state: 'loading' })
   const [files, setFiles] = useState<Loaded<LibraryFile[]>>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const [openEvent, setOpenEvent] = useState<MemberEvent | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -103,6 +107,7 @@ export function MemberHomePage() {
       <MemberPageHeader title={`สวัสดี ${member?.nickname || member?.name || ''}`.trim()} description={formatDateLong(today())} />
 
       <div className="m-home">
+        <MemberCalendar />
         <section className="m-card" aria-labelledby="home-events">
           <div className="m-card-head">
             <h2 id="home-events">
@@ -122,7 +127,7 @@ export function MemberHomePage() {
               <ul className="m-event-list">
                 {events.data.map((event) => (
                   <li key={event.id} className="m-event">
-                    <EventSummary event={event} />
+                    <button type="button" className="m-home-event" aria-haspopup="dialog" onClick={() => setOpenEvent(event)}><EventSummary event={event} /></button>
                   </li>
                 ))}
               </ul>
@@ -153,6 +158,8 @@ export function MemberHomePage() {
             ))}
         </section>
 
+        <section className="m-card m-home-news" aria-label="ข่าวชมรม"><MemberNewsFeed limit={3} /><Link to="/member/activities" className="text-link">ดูข่าวและกิจกรรมทั้งหมด<ChevronRight size={16} aria-hidden="true" /></Link></section>
+
         <Link to="/member/account" className="m-card m-card-link">
           <span className="m-card-link-icon" aria-hidden="true">
             <UserRound size={22} />
@@ -164,6 +171,7 @@ export function MemberHomePage() {
           <ChevronRight aria-hidden="true" size={20} />
         </Link>
       </div>
+      {openEvent && <MemberEventDialog event={openEvent} onClose={() => setOpenEvent(null)} />}
     </>
   )
 }

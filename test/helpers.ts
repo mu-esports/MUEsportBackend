@@ -13,6 +13,8 @@ export const ORIGIN = 'https://staff.example.test'
 export const CLUB_EMAIL = 'muesport2567@gmail.com'
 
 const TABLES = [
+  'club_news',
+  'member_deletions',
   'athletes', 'member_photos', 'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
   'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',

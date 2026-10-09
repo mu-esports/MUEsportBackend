@@ -44,4 +44,5 @@ export const memberApi = {
     return api<{ ok: true; csrfToken: string }>('/api/member/password', { method: 'POST', body: { currentPassword, newPassword, currentProof, passwordProof } })
   },
   events: async () => (await api<{ events: MemberEvent[] }>('/api/member/events')).events,
+  calendar: async (month: string, signal?: AbortSignal) => api<{ month: string; events: MemberEvent[]; truncated: boolean }>(`/api/member/calendar?month=${encodeURIComponent(month)}`, { signal }),
 }

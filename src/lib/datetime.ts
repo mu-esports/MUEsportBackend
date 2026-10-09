@@ -136,7 +136,7 @@ export function sortEvents<T extends Pick<ClubEvent, 'start' | 'allDay' | 'title
   )
 }
 
-export function eventsOnDate(events: ClubEvent[], date: string) {
+export function eventsOnDate<T extends Pick<ClubEvent, 'allDay' | 'start' | 'end' | 'title'>>(events: T[], date: string) {
   return sortEvents(events.filter((e) => dateOf(e.start) <= date && date <= dateOf(e.end)))
 }
 

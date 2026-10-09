@@ -21,6 +21,7 @@ import { DocumentRedirectPage, FilesPage, FileViewPage } from './pages/Files'
 import { FormsPage } from './pages/Forms'
 import { AccessDeniedPage, LoginPage } from './pages/Login'
 import { MembersPage } from './pages/Members'
+import { NewsPage } from './pages/News'
 import { OverviewPage } from './pages/Overview'
 import { SourcesPage } from './pages/Sources'
 import { TeamPage } from './pages/Team'
@@ -83,6 +84,7 @@ const liveRoutes: RouteObject[] = [
         children: [
           ...sharedPages,
           { path: 'athletes', element: <AthletesPage /> },
+          { path: 'news', element: <NewsPage /> },
           { path: 'files', element: <FilesPage /> },
           { path: 'files/:id', element: <FileViewPage /> },
           // หน้าเอกสารเดิมกลายเป็นหน้าไฟล์ชมรม ลิงก์เดิมของเอกสารแต่ละฉบับพาไปยังตัวอย่างของไฟล์นั้น

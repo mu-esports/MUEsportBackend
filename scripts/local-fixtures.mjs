@@ -8,6 +8,8 @@ import { join } from 'node:path'
 import { argon2id } from '@noble/hashes/argon2.js'
 
 const TABLES = [
+  'club_news',
+  'member_deletions',
   'athletes', 'member_photos', 'member_sessions', 'member_accounts', 'login_throttle', 'library_cache', 'library_state',
   'form_imports', 'write_locks', 'form_responses', 'form_items', 'calendar_series', 'setup_operations', 'sync_state', 'sync_resources',
   'audit_log', 'resource_configs', 'document_operations', 'documents', 'google_connections',

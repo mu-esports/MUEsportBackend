@@ -19,6 +19,7 @@ export interface DataRepository {
   createMember(input: MemberInput, key: string): Promise<Member>
   updateMember(id: string, input: MemberInput, expectedVersion: number): Promise<Member>
   setMemberStatus(id: string, status: MemberStatus, expectedVersion: number): Promise<Member>
+  deleteMember(member: Member): Promise<void>
   createEvent(input: ClubEventInput, key: string): Promise<ClubEvent>
   updateEvent(id: string, input: ClubEventInput, expectedVersion: number): Promise<ClubEvent>
   /** มีเฉพาะโหมดตัวอย่าง: แทนที่ข้อมูลด้วยชุดเริ่มต้น */
@@ -36,6 +37,9 @@ const apiRepository: DataRepository = {
     (await api<{ member: Member }>(`/api/members/${encodeURIComponent(id)}`, { method: 'PATCH', body: { ...input, expectedVersion } })).member,
   setMemberStatus: async (id, status, expectedVersion) =>
     (await api<{ member: Member }>(`/api/members/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status, expectedVersion } })).member,
+  deleteMember: async (member) => {
+    await api(`/api/members/${encodeURIComponent(member.id)}/delete`, { method: 'POST', body: { expectedVersion: member.version, expectedAccountRevision: member.account?.revision ?? '' } })
+  },
   createEvent: async (input, key) =>
     (await api<{ event: ClubEvent }>('/api/events', { method: 'POST', body: input, idempotencyKey: key })).event,
   updateEvent: async (id, input, expectedVersion) =>
@@ -116,6 +120,13 @@ const demoRepository: DataRepository = {
     const [members, member] = replaceItem(data.members, id, expectedVersion, (m) => ({ ...m, status }))
     writeDemo({ ...data, members })
     return member
+  },
+  async deleteMember(member) {
+    const data = readDemo()
+    const current = data.members.find((item) => item.id === member.id)
+    if (!current) return
+    if (current.version !== member.version) throw new AppError('version_conflict', 409, 'ข้อมูลสมาชิกถูกแก้ไขจากที่อื่น ตรวจข้อมูลล่าสุดก่อนลบ', { current })
+    writeDemo({ ...data, members: data.members.filter((item) => item.id !== member.id) })
   },
   async createEvent(input) {
     const data = readDemo()

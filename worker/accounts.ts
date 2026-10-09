@@ -12,6 +12,8 @@ import { dummyChallenge, readMaterial, storedPassword, storeMaterial, verifyMate
 import type { Reservation } from './throttle'
 import { bangkokToday, expectedVersion, invalid, text } from './validation'
 import { normalizeStudentId, studentIdAliases, studentIdKey } from '../src/lib/student-id'
+import { memberNews } from './news'
+import { monthGrid } from '../src/lib/datetime'
 
 /**
  * บัญชีเข้าสู่ระบบของสมาชิก (รหัสนักศึกษา + รหัสผ่าน)
@@ -554,6 +556,18 @@ async function events(ctx: Ctx): Promise<Response> {
   })
 }
 
+/** อ่านปฏิทินตามเดือน รวมช่องวันของเดือนข้างเคียงและกำหนดการหลายวัน ไม่มี metadata หลังบ้าน */
+async function calendar(ctx: Ctx): Promise<Response> {
+  requireMember(ctx)
+  const month = ctx.url.searchParams.get('month') ?? bangkokToday().slice(0, 7)
+  if (!/^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(month) || Number(month.slice(0, 4)) > 9998) throw invalid('เดือนปฏิทินไม่ถูกต้อง', 'month')
+  const days = monthGrid(month)
+  const { results } = await ctx.env.DB.prepare(`SELECT id, title, all_day, start_at, end_at, location, description FROM events
+    WHERE source_state = 'ok' AND start_at <= ? AND end_at >= ? ORDER BY start_at, title, id LIMIT 501`)
+    .bind(`${days[days.length - 1]}T23:59`, `${days[0]}T00:00`).all<EventRow>()
+  return json({ month, truncated: results.length > 500, events: results.slice(0, 500).map((row) => ({ id: row.id, title: row.title, allDay: row.all_day === 1, start: row.start_at, end: row.end_at, location: row.location, description: row.description })) })
+}
+
 export async function handleMemberSelf(ctx: Ctx, parts: string[]): Promise<Response | null> {
   const method = ctx.request.method
   if (parts.length !== 1) return null
@@ -561,5 +575,7 @@ export async function handleMemberSelf(ctx: Ctx, parts: string[]): Promise<Respo
   if (parts[0] === 'me' && method === 'PATCH') return updateMe(ctx)
   if (parts[0] === 'password' && method === 'POST') return changePassword(ctx)
   if (parts[0] === 'events' && method === 'GET') return events(ctx)
+  if (parts[0] === 'calendar' && method === 'GET') return calendar(ctx)
+  if (parts[0] === 'news' && method === 'GET') return memberNews(ctx)
   return null
 }

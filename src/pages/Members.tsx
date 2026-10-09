@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ExternalLink, ImagePlus, Pencil, Search, SearchX, TriangleAlert, UserPlus, Users } from 'lucide-react'
+import { ExternalLink, ImagePlus, Pencil, Search, SearchX, Trash2, TriangleAlert, UserPlus, Users } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { Avatar } from '../components/Avatar'
 import { Dialog } from '../components/Dialog'
@@ -17,6 +17,7 @@ import { IS_DEMO } from '../mode'
 import { AccountSection, ConfirmLoginIdDialog, DeleteAccountDialog, DisableAccountDialog, SetPasswordDialog } from './AccountDialogs'
 import type { AccountAction } from './AccountDialogs'
 import { MemberForm } from './MemberForm'
+import { DeleteMemberDialog } from './DeleteMemberDialog'
 import { PhotoDialog } from './PhotoDialog'
 import { SuspendConfirm } from './SuspendConfirm'
 
@@ -46,6 +47,8 @@ export function MembersPage() {
   // กล่องจัดการรูปของสมาชิกที่เปิดรายละเอียดอยู่ และผลของการเปลี่ยนรูปครั้งล่าสุด
   const [photoOpen, setPhotoOpen] = useState(false)
   const [photoNotice, setPhotoNotice] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Member | null>(null)
+  const addButton = useRef<HTMLButtonElement>(null)
   // ปุ่มในกล่องรายละเอียดที่ควรได้ focus กลับ เมื่อปิดกล่องย่อยโดยไม่บันทึก (กล่องรายละเอียดถูกสร้างใหม่ จึงระบุปุ่มด้วยชื่อ)
   const returnFocus = useRef<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -84,14 +87,14 @@ export function MembersPage() {
   // ทำงานหลังกล่องรายละเอียดเปิดกลับและตั้ง focus เริ่มต้นของตัวเองแล้ว: ย้าย focus ไปปุ่มที่ผู้ใช้กดเปิดกล่องย่อย
   useEffect(() => {
     const target = returnFocus.current
-    if (!target || accountAction !== null || photoOpen) return
+    if (!target || accountAction !== null || photoOpen || deleteTarget) return
     // คืนหลัง Dialog เปิดและ browser ตั้ง focus เริ่มต้นเสร็จแล้ว มิฉะนั้น focus ถูกปุ่มแก้ไขดึงกลับ
     const frame = requestAnimationFrame(() => {
       const button = document.querySelector<HTMLElement>(`dialog[open] [data-return-focus="${target}"]`)
       if (button) { button.focus(); returnFocus.current = null }
     })
     return () => cancelAnimationFrame(frame)
-  }, [accountAction, photoOpen])
+  }, [accountAction, photoOpen, deleteTarget])
   const closeAccountDialog = () => {
     returnFocus.current = accountAction ? `account-${accountAction}` : null
     setAccountAction(null)
@@ -172,7 +175,7 @@ export function MembersPage() {
         title="สมาชิก"
         description="ค้นหา ดูรายละเอียด และจัดการรายชื่อสมาชิกของชมรม"
         action={
-          <button type="button" className="button button-primary" onClick={() => setForm({ mode: 'add' })} disabled={sheetReadOnly}>
+          <button ref={addButton} type="button" className="button button-primary" onClick={() => setForm({ mode: 'add' })} disabled={sheetReadOnly}>
             <UserPlus aria-hidden="true" size={18} />
             เพิ่มสมาชิก
           </button>
@@ -310,13 +313,18 @@ export function MembersPage() {
         )}
       </DataBoundary>
 
-      {detail && !form && !suspendTarget && !accountAction && !photoOpen && (
+      {detail && !form && !suspendTarget && !accountAction && !photoOpen && !deleteTarget && (
         <Dialog
           title={detail.name}
           description={`ชื่อเล่น: ${detail.nickname}`}
           onRequestClose={() => openDetail(null)}
           footer={
             <>
+              {(isAdmin || IS_DEMO) && (
+                <button type="button" className="button button-danger-outline" data-return-focus="member-delete" onClick={() => setDeleteTarget(detail)}>
+                  <Trash2 aria-hidden="true" size={16} /> ลบข้อมูลสมาชิก
+                </button>
+              )}
               {!canEdit(detail) ? (
                 <>
                   {sheet?.resource && (
@@ -453,6 +461,21 @@ export function MembersPage() {
           />
         </Dialog>
       )}
+
+      {deleteTarget && <DeleteMemberDialog member={deleteTarget} onClose={() => {
+        returnFocus.current = 'member-delete'
+        setDeleteTarget(null)
+      }} onDeleted={() => {
+        const name = deleteTarget.name
+        setDeleteTarget(null)
+        setDetailId(null)
+        refresh().catch(() => undefined)
+        toast.success(`ลบข้อมูลสมาชิก “${name}” ออกจากเว็บแล้ว`)
+        requestAnimationFrame(() => {
+          if (addButton.current && !addButton.current.disabled) addButton.current.focus()
+          else document.querySelector<HTMLInputElement>('#member-search')?.focus()
+        })
+      }} />}
 
       {detail && accountAction === 'password' && <SetPasswordDialog member={detail} onClose={closeAccountDialog} onSaved={accountSaved} />}
       {detail && accountAction === 'disable' && <DisableAccountDialog member={detail} onClose={closeAccountDialog} onSaved={accountSaved} />}

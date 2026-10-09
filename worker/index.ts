@@ -9,6 +9,7 @@ import { handleLibrary } from './library'
 import { isAuthConfigured } from './google'
 import { errorResponse, HttpError, json, redirect } from './http'
 import { handleMembers } from './members'
+import { handleNews } from './news'
 import { loadSession } from './session'
 import { handleSetup, handleSync } from './setup'
 import { handleSources } from './sources'
@@ -35,6 +36,7 @@ async function handleApi(ctx: Ctx): Promise<Response> {
   else if (resource === 'member') response = await handleMemberSelf(ctx, rest)
   else if (resource === 'library') response = await handleLibrary(ctx, rest)
   else if (resource === 'events') response = await handleEvents(ctx, rest)
+  else if (resource === 'news') response = await handleNews(ctx, rest)
   else if (resource === 'users') response = await handleUsers(ctx, rest)
   else if (resource === 'documents') response = await handleDocuments(ctx, rest)
   else if (resource === 'forms') response = await handleForms(ctx, rest)

@@ -126,6 +126,13 @@
 
 .m-home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
 .m-home > .m-card-link { grid-column: 1 / -1; }
+.m-home-calendar, .m-home-news { grid-column: 1 / -1; }
+.m-home-calendar .month-cell { min-height: 88px; }
+.m-home-calendar .chip, .m-home-calendar .chip-more { min-height: 44px; }
+.m-home-event { display: grid; gap: 2px; min-height: 44px; width: 100%; padding: 6px; border: 0; border-radius: var(--radius); background: transparent; color: var(--text); text-align: left; }
+.m-home-event:hover { background: var(--accent-soft); }
+.m-activities-news { margin-bottom: 28px; }
+.m-schedule-heading { margin-bottom: 12px; }
 .m-card-link { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; color: var(--text); text-decoration: none; }
 .m-card-link:hover { border-color: var(--accent); }
 .m-card-link > svg { color: var(--text-muted); }

@@ -376,7 +376,7 @@ export function Layout() {
           )}
           {/* ขณะเมนูเปิด ข้อความอยู่ในเมนูแล้ว จึงไม่แสดงซ้ำหลังฉากของเมนู */}
           {leaving.error && !menuOpen && <LogoutAlert leaving={leaving} />}
-          <main id="main" className="panel" tabIndex={-1}>
+          <main id="main" className="panel page-enter" tabIndex={-1} key={pathname}>
             <Outlet />
           </main>
         </div>

@@ -375,13 +375,16 @@ export function planStudentIds(
 
 /** ปรับสำเนาใน D1 ให้ตรงกับชีตที่อ่านมา คืน true เมื่อมีแถวเปลี่ยน */
 export async function applyTable(env: AppEnv, resource: SyncResource, table: SheetTable): Promise<boolean> {
+  const { results: removed } = await env.DB.prepare('SELECT member_id FROM member_deletions').all<{ member_id: string }>()
+  const deletedIds = new Set(removed.map((entry) => entry.member_id))
+  const activeRows = table.rows.filter((row) => !deletedIds.has(row.id))
   const { results: existing } = await env.DB.prepare('SELECT * FROM members').all<MemberRow>()
   const byId = new Map(existing.map((m) => [m.id, m]))
   const statements: D1PreparedStatement[] = []
   const now = nowIso()
   const present = new Set<string>()
 
-  for (const row of table.rows) {
+  for (const row of activeRows) {
     present.add(row.id)
     // แถวที่ผิดรูปแบบหรือรหัสซ้ำ: คงสำเนาเดิมไว้ ไม่ทับด้วยค่าที่ไม่แน่ใจ และไม่ถือว่าหายจากชีต
     if (!row.values || table.duplicateIds.has(row.id)) continue
@@ -421,7 +424,7 @@ export async function applyTable(env: AppEnv, resource: SyncResource, table: She
   const clears: D1PreparedStatement[] = []
   if (table.cols.studentId !== undefined) {
     const claims = new Map<string, { value: string; issue: StudentIdIssue }>()
-    for (const row of table.rows) {
+    for (const row of activeRows) {
       if (row.values && !table.duplicateIds.has(row.id)) claims.set(row.id, { value: row.values.studentId, issue: row.studentIdIssue })
     }
     const plan = planStudentIds(new Map(existing.map((m) => [m.id, { studentId: m.student_id, origin: m.student_id_origin }])), claims)

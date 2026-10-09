@@ -4,7 +4,7 @@ import { nowIso } from './env'
 import type { AppEnv, Ctx } from './env'
 import { HttpError, json, readJson } from './http'
 import { handleMemberPhoto } from './photos'
-import { requireMutation, requireUser } from './session'
+import { audit, requireMutation, requireUser } from './session'
 import { appendMember, updateMemberRow } from './sheets'
 import type { SheetConfig } from './sheets'
 import { loadResource } from './sync'
@@ -60,6 +60,12 @@ function parseInput(body: Record<string, unknown>) {
 }
 
 const getMember = (env: AppEnv, id: string) => env.DB.prepare(`${MEMBER_WITH_ACCOUNT} WHERE m.id = ?`).bind(id).first<MemberRow>()
+
+async function ensureNotDeleted(env: AppEnv, id: string): Promise<void> {
+  if (await env.DB.prepare('SELECT member_id FROM member_deletions WHERE member_id = ?').bind(id).first()) {
+    throw new HttpError(409, 'member_deleted', 'สมาชิกจากคำขอเดิมถูกลบออกจากเว็บแล้ว หากต้องการเพิ่มสมาชิกอีกครั้ง ให้เริ่มจากปุ่มเพิ่มสมาชิกใหม่')
+  }
+}
 
 async function list(ctx: Ctx): Promise<Response> {
   requireUser(ctx)
@@ -121,6 +127,7 @@ async function createInSheet(env: AppEnv, sheet: SyncResource, userId: string, k
   const payloadHash = await hashPayload(input)
   let id = await findIdempotent(env, userId, key, operation, payloadHash)
   if (id) {
+    await ensureNotDeleted(env, id)
     const existing = await getMember(env, id)
     if (existing) return { row: existing, replayed: true }
   } else {
@@ -144,6 +151,7 @@ export async function createMember(env: AppEnv, userId: string, key: string, ope
   const payloadHash = await hashPayload(input)
   const replay = async () => {
     const existingId = await findIdempotent(env, userId, key, operation, payloadHash)
+    if (existingId) await ensureNotDeleted(env, existingId)
     const row = existingId ? await getMember(env, existingId) : null
     return row ? { row, replayed: true } : null
   }
@@ -177,6 +185,7 @@ export async function createMember(env: AppEnv, userId: string, key: string, ope
  * คำตอบฟอร์มไม่มีช่องรหัสนักศึกษา: ทีมงานกรอกเพิ่มได้จากฟอร์มแก้สมาชิกภายหลัง
  */
 export async function createMemberWithId(env: AppEnv, actorId: string, id: string, input: Omit<MemberInput, 'studentId'>): Promise<MemberRow> {
+  await ensureNotDeleted(env, id)
   const sheet = await loadResource(env, 'sheets')
   if (sheet) {
     // appendMember อ่านชีตก่อนภายใต้ lock: ถ้าแถวของรหัสนี้อยู่ในชีตแล้ว (เช่น คำขอก่อนหน้าเขียนสำเร็จแต่คำตอบหาย) จะไม่ต่อแถวซ้ำ
@@ -283,6 +292,38 @@ async function setStatus(ctx: Ctx, id: string): Promise<Response> {
   return json({ member: toMember((await getMember(ctx.env, id))!) })
 }
 
+/** ลบทะเบียนเฉพาะเว็บ พร้อมข้อมูลที่ผูกกับบุคคล ไม่ส่งคำขอเขียนไป Google */
+async function remove(ctx: Ctx, id: string): Promise<Response> {
+  const session = await requireMutation(ctx, 'admin')
+  const body = await readJson(ctx.request)
+  const version = expectedVersion(body)
+  const revision = text(body, 'expectedAccountRevision', 'รุ่นบัญชีเข้าสู่ระบบ', 64)
+  const current = await getMember(ctx.env, id)
+  if (!current) {
+    if (await ctx.env.DB.prepare('SELECT member_id FROM member_deletions WHERE member_id = ?').bind(id).first()) return json({ deleted: false })
+    throw new HttpError(404, 'not_found', 'ไม่พบสมาชิกนี้ในทะเบียน')
+  }
+  if (current.version !== version || (current.account_revision ?? '') !== revision) throw versionConflict(toMember(current))
+  const now = nowIso()
+  const results = await ctx.env.DB.batch([
+    ctx.env.DB.prepare(`INSERT INTO member_deletions (member_id, deleted_by, deleted_at)
+      SELECT m.id, ?, ? FROM members m LEFT JOIN member_accounts a ON a.member_id = m.id
+      WHERE m.id = ? AND m.version = ? AND COALESCE(a.revision, '') = ?
+      ON CONFLICT(member_id) DO NOTHING`).bind(session.user.id, now, id, version, revision),
+    // FK cascade ลบบัญชี/session/รูป/โปรไฟล์นักกีฬาใน transaction เดียวกัน
+    ctx.env.DB.prepare(`DELETE FROM members WHERE id = ? AND EXISTS (
+      SELECT 1 FROM member_deletions WHERE member_id = ? AND deleted_at = ? AND deleted_by = ?
+    )`).bind(id, id, now, session.user.id),
+  ])
+  if (!results[0].meta.changes) {
+    const latest = await getMember(ctx.env, id)
+    if (latest) throw versionConflict(toMember(latest))
+    return json({ deleted: false })
+  }
+  await audit(ctx.env, session.user.id, 'member.deleted', id)
+  return json({ deleted: true })
+}
+
 export async function handleMembers(ctx: Ctx, parts: string[]): Promise<Response | null> {
   const method = ctx.request.method
   if (parts.length === 0) {
@@ -290,6 +331,7 @@ export async function handleMembers(ctx: Ctx, parts: string[]): Promise<Response
     if (method === 'POST') return create(ctx)
   }
   if (parts.length === 1 && method === 'PATCH') return update(ctx, parts[0])
+  if (parts.length === 2 && parts[1] === 'delete' && method === 'POST') return remove(ctx, parts[0])
   if (parts.length === 2 && parts[1] === 'status' && method === 'POST') return setStatus(ctx, parts[0])
   if (parts.length === 2 && parts[1] === 'photo') return handleMemberPhoto(ctx, parts[0])
   if ((parts.length === 2 || parts.length === 3) && parts[1] === 'account') return handleMemberAccount(ctx, parts[0], parts[2])

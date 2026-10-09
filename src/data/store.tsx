@@ -20,6 +20,7 @@ interface Store {
   addMember(input: MemberInput, key: string): Promise<Member>
   updateMember(id: string, input: MemberInput, expectedVersion: number): Promise<Member>
   setMemberStatus(id: string, status: MemberStatus, expectedVersion: number): Promise<Member>
+  deleteMember(member: Member): Promise<void>
   addEvent(input: ClubEventInput, key: string): Promise<ClubEvent>
   updateEvent(id: string, input: ClubEventInput, expectedVersion: number): Promise<ClubEvent>
   resetSampleData(): Promise<void>
@@ -117,6 +118,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addMember: async (input, key) => savedMember(await repository.createMember(input, key)),
       updateMember: async (id, input, version) => savedMember(await repository.updateMember(id, input, version)),
       setMemberStatus: async (id, status, version) => savedMember(await repository.setMemberStatus(id, status, version)),
+      async deleteMember(member) {
+        await repository.deleteMember(member)
+        memberSeq.current++
+        setMembers((list) => list.filter((item) => item.id !== member.id))
+        refreshMembers().catch(() => undefined)
+      },
       addEvent: async (input, key) => savedEvent(await repository.createEvent(input, key)),
       updateEvent: async (id, input, version) => savedEvent(await repository.updateEvent(id, input, version)),
       async resetSampleData() {

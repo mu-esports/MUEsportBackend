@@ -1521,3 +1521,50 @@ input[aria-invalid='true'], textarea[aria-invalid='true'], select[aria-invalid='
   .roster-open { justify-self: stretch; }
   .photo-actions .button { flex: 1 1 auto; }
 }
+
+/* ข่าวกลาง: ใช้ได้ทั้งหลังบ้านและหน้าสมาชิก ภาพโหลดภายหลังโดยไม่ขยับการ์ด */
+.news-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.news-card { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); text-align: left; }
+.news-card:hover { border-color: var(--accent); box-shadow: 0 4px 16px rgb(15 23 42 / 8%); }
+.news-image { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; background: var(--surface-muted); }
+.news-image-empty { display: grid; place-items: center; color: var(--accent-text); }
+.news-card-body { display: grid; gap: 10px; padding: 16px; min-width: 0; }
+.news-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-muted); font-size: .8125rem; }
+.news-title { font-size: 1.0625rem; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.news-summary { color: var(--text-muted); font-size: .875rem; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; overflow-wrap: anywhere; }
+.news-read { display: inline-flex; align-items: center; gap: 6px; color: var(--accent-text); font-size: .875rem; font-weight: 500; }
+.news-detail { display: grid; gap: 16px; }
+.news-poster { display: block; width: 100%; max-height: 65dvh; object-fit: contain; border-radius: var(--radius); background: var(--surface-muted); }
+.news-lead { font-weight: 500; overflow-wrap: anywhere; }
+.news-feed-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.news-source-note { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-bottom: 20px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); }
+.news-source-note > svg { color: var(--accent-text); margin-top: 3px; }
+.news-source-note > div { flex: 1 1 240px; min-width: 0; }
+.news-source-note p { margin-top: 4px; color: var(--text-muted); font-size: .875rem; }
+.news-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 20px; }
+.news-filters > label:first-child { flex: 1 1 240px; }
+.news-filters > label { flex: 0 1 200px; }
+.news-manage-card { display: flex; flex-direction: column; min-width: 0; }
+.news-manage-card .news-card { flex: 1; border-radius: 12px 12px 0 0; }
+.news-manage-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; border: 1px solid var(--border); border-top: 0; border-radius: 0 0 12px 12px; background: var(--surface); }
+.news-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.news-form .form-wide { grid-column: 1 / -1; min-width: 0; }
+@media (max-width: 1099px) { .news-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 599px) {
+  .news-grid, .news-form { grid-template-columns: minmax(0, 1fr); }
+  .news-filters > label { flex: 1 1 100%; }
+}
+
+/* จังหวะเคลื่อนไหวสั้น: ไม่เลื่อนข้อความขณะอ่าน ไม่เพิ่ม dependency หรือรอ animation ก่อนโหลดข้อมูล */
+.page-enter, .login-main { animation: page-enter 180ms ease-out; }
+.dialog[open] { animation: dialog-enter 150ms ease-out; }
+.toast { animation: page-enter 150ms ease-out; }
+.button, .icon-button, .nav-link, .m-nav-link, .m-tab, .news-card, .m-activity, .m-card-link, .file-card {
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+@keyframes page-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes dialog-enter { from { opacity: 0; transform: translateY(5px) scale(.99); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .login-main, .dialog[open], .toast { animation: none; }
+  .button, .icon-button, .nav-link, .m-nav-link, .m-tab, .news-card, .m-activity, .m-card-link, .file-card { transition: none; }
+}

@@ -1,26 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarX2, ChevronRight, LoaderCircle, TriangleAlert } from 'lucide-react'
-import { Dialog } from '../components/Dialog'
 import { messageOf } from '../data/errors'
-import { dateOf, formatEventRange, formatMonth, monthOf, sortEvents, WEEKDAYS_SHORT, weekday } from '../lib/datetime'
+import { dateOf, formatMonth, monthOf, sortEvents, WEEKDAYS_SHORT, weekday } from '../lib/datetime'
 import { memberApi } from './api'
 import type { MemberEvent } from './api'
 import { EventSummary, upcoming } from './MemberHome'
 import { MemberPageHeader } from './MemberLayout'
+import { MemberEventDialog } from './MemberEventDialog'
+import { MemberNewsFeed } from '../news/NewsFeed'
 
 type Tab = 'upcoming' | 'past'
-
-/** แสดงลิงก์เฉพาะเมื่อสถานที่เป็น URL ของ http/https ทั้งข้อความ ข้อความอื่นแสดงตามตัวอักษร */
-function Location({ value }: { value: string }) {
-  if (/^https?:\/\/\S+$/i.test(value)) {
-    return (
-      <a href={value} target="_blank" rel="noopener noreferrer" className="break-word">
-        {value}
-      </a>
-    )
-  }
-  return <span className="break-word">{value}</span>
-}
 
 function byMonth(events: MemberEvent[]): { month: string; events: MemberEvent[] }[] {
   const groups: { month: string; events: MemberEvent[] }[] = []
@@ -67,6 +56,8 @@ export function MemberActivitiesPage() {
   return (
     <>
       <MemberPageHeader title="กิจกรรม" description="กำหนดการของชมรม เวลาเป็นเวลาประเทศไทย" />
+      <section className="m-card m-activities-news" aria-label="ข่าวชมรม"><MemberNewsFeed /></section>
+      <h2 className="m-schedule-heading">กำหนดการชมรม</h2>
 
       <div className="m-segment" role="group" aria-label="ช่วงเวลา">
         <button type="button" className="m-segment-button" aria-pressed={tab === 'upcoming'} onClick={() => setTab('upcoming')}>
@@ -125,33 +116,7 @@ export function MemberActivitiesPage() {
         ))
       )}
 
-      {open && (
-        <Dialog
-          title={open.title}
-          description={formatEventRange(open)}
-          onRequestClose={() => setOpenId(null)}
-          footer={
-            <button type="button" className="button button-primary" onClick={() => setOpenId(null)} data-autofocus>
-              ปิด
-            </button>
-          }
-        >
-          <dl className="detail-list">
-            <div className="detail-wide">
-              <dt>วันและเวลา</dt>
-              <dd>{formatEventRange(open)}</dd>
-            </div>
-            <div className="detail-wide">
-              <dt>สถานที่หรือลิงก์</dt>
-              <dd>{open.location ? <Location value={open.location} /> : <span className="muted">ไม่ได้ระบุ</span>}</dd>
-            </div>
-            <div className="detail-wide">
-              <dt>รายละเอียด</dt>
-              <dd className="pre-line break-word">{open.description || <span className="muted">ไม่มีรายละเอียดเพิ่มเติม</span>}</dd>
-            </div>
-          </dl>
-        </Dialog>
-      )}
+      {open && <MemberEventDialog event={open} onClose={() => setOpenId(null)} />}
     </>
   )
 }

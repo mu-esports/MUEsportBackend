@@ -10,6 +10,7 @@ import {
 import { EmptyState } from './ui'
 
 export type CalendarMode = 'month' | 'list'
+type CalendarEvent = Pick<ClubEvent, 'id' | 'title' | 'allDay' | 'start' | 'end' | 'location' | 'description'>
 
 // จำนวนกำหนดการที่แสดงในช่องวัน ที่เหลือรวมเป็น “อีก N รายการ”
 const MAX_CHIPS = 2
@@ -44,7 +45,7 @@ export type CalendarState = ReturnType<typeof useCalendarState>
 
 interface CalendarViewProps {
   calendar: CalendarState
-  events: ClubEvent[]
+  events: CalendarEvent[]
   /** เปิดรายละเอียดในหน้านี้ (กำหนดการเป็นปุ่ม) */
   onOpenEvent?(id: string): void
   /** พาไปหน้าที่แสดงรายละเอียด (กำหนดการเป็นลิงก์) ใช้เมื่อไม่มี onOpenEvent */
@@ -55,10 +56,13 @@ interface CalendarViewProps {
   /** ระดับหัวข้อของชื่อเดือน หัวข้อวันอยู่ถัดลงไปหนึ่งระดับ */
   headingLevel?: 2 | 3
   titleRef?: RefObject<HTMLHeadingElement | null>
+  readOnly?: boolean
+  /** สถานะโหลด/ข้อผิดพลาดแทนเนื้อหา โดยคงปุ่มเปลี่ยนเดือนและ focus ไว้ */
+  contentState?: ReactNode
 }
 
 export function CalendarView({
-  calendar, events, onOpenEvent, eventHref, emptyDayAction, emptyMonthAction, headingLevel = 2, titleRef,
+  calendar, events, onOpenEvent, eventHref, emptyDayAction, emptyMonthAction, headingLevel = 2, titleRef, readOnly = false, contentState,
 }: CalendarViewProps) {
   const { todayDate, view, setView, month, selected, goToMonth, goToday, selectDay } = calendar
   const panelRef = useRef<HTMLElement>(null)
@@ -68,7 +72,7 @@ export function CalendarView({
 
   const days = useMemo(() => monthGrid(month), [month])
   const byDay = useMemo(() => {
-    const map = new Map<string, ClubEvent[]>()
+    const map = new Map<string, CalendarEvent[]>()
     for (const day of days) map.set(day, eventsOnDate(events, day))
     return map
   }, [days, events])
@@ -128,7 +132,7 @@ export function CalendarView({
         </div>
       </div>
 
-      {view === 'month' ? (
+      {contentState ?? (view === 'month' ? (
         <div className="calendar-layout">
           <div className="month-grid">
             {WEEKDAYS_SHORT.map((w) => (
@@ -215,7 +219,7 @@ export function CalendarView({
         </div>
       ) : listDays.length === 0 ? (
         <EmptyState icon={CalendarX} title={`ไม่มีกำหนดการใน${formatMonth(month)}`} action={emptyMonthAction}>
-          เลื่อนไปเดือนอื่น หรือเพิ่มกำหนดการใหม่
+          {readOnly ? 'เลือกดูเดือนอื่น เมื่อทีมงานเพิ่มกำหนดการจะแสดงที่นี่' : 'เลื่อนไปเดือนอื่น หรือเพิ่มกำหนดการใหม่'}
         </EmptyState>
       ) : (
         <div className="agenda">
@@ -233,7 +237,7 @@ export function CalendarView({
             </section>
           ))}
         </div>
-      )}
+      ))}
     </>
   )
 }
@@ -264,7 +268,7 @@ function EventTarget({ id, className, children, onOpenEvent, eventHref }: EventT
 
 function EventRow({
   event, day, onOpenEvent, eventHref,
-}: { event: ClubEvent; day: string } & Pick<EventTargetProps, 'onOpenEvent' | 'eventHref'>) {
+}: { event: CalendarEvent; day: string } & Pick<EventTargetProps, 'onOpenEvent' | 'eventHref'>) {
   const multiDay = dateOf(event.start) !== dateOf(event.end)
   return (
     <li>
