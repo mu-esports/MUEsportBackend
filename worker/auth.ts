@@ -7,7 +7,7 @@ import {
 } from './google'
 import type { GoogleIdentity } from './google'
 import { cookie, HttpError, isHttps, json, parseCookies, readJson, redirect } from './http'
-import { logout, memberLogin, memberChallenge } from './accounts'
+import { logout, memberLogin, memberChallenge, memberActivation } from './accounts'
 import { audit, createSession, deleteSession, requireMutation } from './session'
 
 const STATE_COOKIE = 'mu_oauth'
@@ -226,5 +226,6 @@ export async function handleAuth(ctx: Ctx): Promise<Response> {
   if (pathname === '/auth/logout' && method === 'POST') return logout(ctx)
   if (pathname === '/auth/member/login' && method === 'POST') return memberLogin(ctx)
   if (pathname === '/auth/member/challenge' && method === 'POST') return memberChallenge(ctx)
+  if (pathname === '/auth/member/activation' && method === 'POST') return memberActivation(ctx)
   throw new HttpError(404, 'not_found', 'ไม่พบเส้นทางนี้')
 }

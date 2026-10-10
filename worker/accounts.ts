@@ -294,6 +294,23 @@ export async function handleMemberAccount(ctx: Ctx, memberId: string, action: st
 const invalidCredentials = () =>
   new HttpError(401, 'invalid_credentials', 'รหัสนักศึกษาหรือรหัสผ่านไม่ถูกต้อง ถ้าลืมรหัสผ่านให้ติดต่อทีมงานเพื่อตั้งรหัสใหม่')
 
+/** ช่วยแสดงคำแนะนำครั้งแรกเท่านั้น ไม่เปิดบัญชี ไม่ออก session และไม่ส่งข้อมูลส่วนตัวหรือรหัสผ่าน */
+export async function memberActivation(ctx: Ctx): Promise<Response> {
+  if (ctx.request.headers.get('Origin') !== ctx.url.origin) throw new HttpError(403, 'bad_origin', 'คำขอนี้ไม่ได้มาจากหน้าเว็บของระบบ')
+  const body = await readJson(ctx.request, 512)
+  const studentId = typeof body.studentId === 'string' ? body.studentId.trim() : ''
+  if (!studentId || studentId.length > 64) throw invalid('กรอกรหัสนักศึกษาให้ถูกต้อง', 'studentId')
+  // ใช้โควตา metadata ร่วมกับ challenge โดยไม่กินจำนวนครั้งที่ลองรหัสผ่าน
+  const allowed = await reserveChallenge(ctx.env, ctx.request)
+  if (!allowed.allowed) throw await tooMany(ctx.env, allowed)
+  const { results } = await ctx.env.DB.prepare(
+    `SELECT a.status, a.must_change_password, a.last_login_at, m.status AS member_status
+       FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.login_id IN (?, ?) LIMIT 2`,
+  ).bind(...studentIdAliases(studentId)).all<{ status: string; must_change_password: number; last_login_at: string | null; member_status: string }>()
+  const row = results.length === 1 ? results[0] : undefined
+  return json({ firstTime: !!row && row.status === 'active' && row.member_status === 'active' && row.must_change_password === 1 && row.last_login_at === null })
+}
+
 /** Public metadata contains a salt and fixed work parameters, never a verifier or an existence flag. */
 export async function memberChallenge(ctx: Ctx): Promise<Response> {
   if (ctx.request.headers.get('Origin') !== ctx.url.origin) throw new HttpError(403, 'bad_origin', 'คำขอนี้ไม่ได้มาจากหน้าเว็บของระบบ')

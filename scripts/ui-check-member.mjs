@@ -283,7 +283,8 @@ try {
       !/\d{5,}|u65|มี u นำหน้า|ตัวเลขล้วน|รหัสตัวอย่าง/.test(await p.locator('main').innerText()), JSON.stringify(field))
     check('[จริง] หน้าเข้าสู่ระบบ: มีช่องรหัสผ่าน ปุ่มเข้าสู่ระบบ และข้อความลืมรหัสผ่านให้ติดต่อทีมงาน',
       (await p.locator('#login-password').getAttribute('type')) === 'password' &&
-      (await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).isVisible()) && (await p.getByText('ลืมรหัสผ่าน? ติดต่อทีมงาน').isVisible()))
+      (await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).isVisible()) && (await p.getByText('ลืมรหัสผ่าน? ติดต่อทีมงาน').isVisible()) &&
+      (await p.getByRole('button', { name: /เปิดใช้งานบัญชี/ }).count()) === 0)
     check('[จริง] หน้าเข้าสู่ระบบ: ไม่มีทางสมัครบัญชีเอง ไม่มีเมนูหรือข้อมูลหลังบ้าน และไม่มีแผงกราฟิกของหน้าเดิม',
       (await p.getByText(/สมัครสมาชิก|สร้างบัญชี|ลงทะเบียน/).count()) === 0 && (await p.locator('.sidebar, .nav-link, table, .auth-hero, .auth-shape').count()) === 0)
     const surface = await p.evaluate(() => ({ theme: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, scheme: getComputedStyle(document.documentElement).colorScheme }))
@@ -367,9 +368,12 @@ try {
     const p = await newPage(1440, 900)
     // คำขอไปเส้นทางเข้าสู่ระบบของสมาชิก (challenge/login) ต้องไม่เกิดเลยในช่องทาง Google
     const memberCalls = []
+    const googleActivationCalls = []
     p.on('request', (request) => {
       const path = new URL(request.url()).pathname
-      if (path.startsWith('/auth/member/')) memberCalls.push(`${request.method()} ${path}`)
+      if (path === '/auth/member/challenge' || path === '/auth/member/login') memberCalls.push(`${request.method()} ${path}`)
+      // การพิมพ์รหัสทดสอบก่อนสลับช่องทางตรวจคำแนะนำได้ แต่คำว่า google ต้องไม่ถูกส่งไปตรวจบัญชีสมาชิก
+      if (path === '/auth/member/activation' && request.postDataJSON()?.studentId?.trim().toLowerCase() === 'google') googleActivationCalls.push(path)
     })
     // จุดเริ่มขั้นตอน Google ของ server (/auth/login) ถูกตอบแทนด้วยหน้าเปล่าในเบราว์เซอร์ทดสอบ: ตรวจเฉพาะว่าหน้าเว็บไปที่ใดและส่งอะไรไป ไม่ได้ไป Google จริง
     const starts = []
@@ -446,6 +450,7 @@ try {
     check('[จริง+stub จุดเริ่ม Google] ช่องทาง google: ไม่ออกจากหน้าระหว่างพิมพ์ กดปุ่มหรือ Enter แล้วจึงไป /auth/login ของ server พร้อม return เดิมเท่านั้น (ไม่มีชื่อผู้ใช้หรือรหัสผ่านใน URL)',
       results.every((r) => r.stayed && r.start === `${BASE}/auth/login?return=%2Fmembers`), JSON.stringify(results.map((r) => ({ word: r.word, stayed: r.stayed, start: r.start }))))
     check('[จริง] ช่องทาง google ไม่เรียกเส้นทางเข้าสู่ระบบของสมาชิกเลย (ไม่มี challenge ไม่มีการคำนวณ/ส่งรหัสผ่าน) ทั้งห้ารูปแบบ', memberCalls.length === 0, memberCalls.join(' | '))
+    check('[จริง] คำว่า google ไม่ถูกส่งไปตรวจคำแนะนำเปิดใช้งานบัญชีสมาชิก', googleActivationCalls.length === 0)
 
     // ลำดับ Tab ในช่องทาง google และไม่มีข้อมูลเข้าสู่ระบบค้างในที่เก็บของเบราว์เซอร์
     await open()
@@ -591,12 +596,16 @@ try {
     const p = await newPage(1440, 900)
     const loginRequest = p.waitForRequest(r => r.url().endsWith('/auth/member/login'))
     await p.goto(`${BASE}/login`)
-    await loginSettled(p)
-    await p.getByRole('button', { name: 'เปิดใช้งานบัญชีครั้งแรก', exact: true }).click()
-    await p.getByRole('heading', { name: 'เปิดใช้งานบัญชี', level: 1 }).waitFor()
-    await p.getByLabel('รหัสนักศึกษา', { exact: true }).fill('u6512345')
-    await p.getByLabel('รหัสผ่านชั่วคราว', { exact: true }).fill(TEMP)
-    await p.getByRole('button', { name: 'เปิดใช้งานบัญชี', exact: true }).click()
+    await p.locator('#login-username').fill('u6512345')
+    await p.getByText('เปิดใช้งานบัญชีครั้งแรก', { exact: true }).waitFor()
+    check('[จริง] พิมพ์รหัสสมาชิกใหม่: แสดงคำแนะนำเปิดใช้งานและช่องรหัสผ่านชั่วคราวเอง ไม่มีปุ่มเปิดใช้งานแยก',
+      (await p.getByLabel('รหัสผ่านชั่วคราว', { exact: true }).isVisible()) && (await p.getByRole('button', { name: /เปิดใช้งานบัญชี/ }).count()) === 0)
+    await p.locator('#login-username').fill('not-a-member')
+    check('[จริง] เปลี่ยนชื่อผู้ใช้: คำแนะนำของสมาชิกเดิมหายทันที', (await p.getByText('เปิดใช้งานบัญชีครั้งแรก', { exact: true }).count()) === 0)
+    await p.locator('#login-username').fill('u6512345')
+    await p.getByText('เปิดใช้งานบัญชีครั้งแรก', { exact: true }).waitFor()
+    await p.locator('#login-password').fill(TEMP)
+    await p.getByRole('button', { name: 'เข้าสู่ระบบ', exact: true }).click()
     await p.waitForURL(`${BASE}/member/password`)
     await p.getByRole('heading', { name: 'ตั้งรหัสผ่านใหม่', level: 1 }).waitFor()
     const loginBody = (await loginRequest).postDataJSON()

@@ -21,6 +21,9 @@ export const passwordMaterial = (password: string, challenge = freshPasswordChal
 export const memberPasswordChallenge = (studentId: string) =>
   api<PasswordChallenge>('/auth/member/challenge', { method: 'POST', body: { studentId }, quiet401: true })
 
+export const memberActivationStatus = (studentId: string, signal: AbortSignal) =>
+  api<{ firstTime: boolean }>('/auth/member/activation', { method: 'POST', body: { studentId }, signal, quiet401: true })
+
 export async function loginMember(studentId: string, password: string) {
   const challenge = await memberPasswordChallenge(studentId)
   const passwordProof = await passwordMaterial(password, challenge)

@@ -1,15 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Gamepad2, Info, KeyRound, LoaderCircle, LogIn, ShieldX, TriangleAlert } from 'lucide-react'
-import { loginMember } from '../auth/member-password'
+import { Gamepad2, Info, KeyRound, LoaderCircle, LogIn, ShieldX, TriangleAlert } from 'lucide-react'
+import { loginMember, memberActivationStatus } from '../auth/member-password'
 import { useAuth } from '../auth/AuthProvider'
 import { ThemeSwitch } from '../components/ThemeSwitch'
 import { PasswordField } from '../components/PasswordField'
 import { Field, fieldAria } from '../components/ui'
 import { CLUB_NAME } from '../config'
 import { messageOf } from '../data/errors'
-import { GOOGLE_LOGIN_WORD, isGoogleLoginWord } from '../lib/student-id'
+import { GOOGLE_LOGIN_WORD, isGoogleLoginWord, studentIdKey } from '../lib/student-id'
 import { useMemberSurface } from '../member/surface'
 
 const ERRORS: Record<string, string> = {
@@ -67,24 +67,38 @@ export function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({})
   const [submitError, setSubmitError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [activating, setActivating] = useState(false)
   // กำลังออกจากหน้านี้ไปหน้าของ Google: กันการกดซ้ำ
   const [leaving, setLeaving] = useState(false)
+  const [activation, setActivation] = useState<{ studentId: string; firstTime: boolean } | null>(null)
   const usernameRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const composing = useRef(false)
   const selection = useRef<[number | null, number | null] | null>(null)
-  const previousMode = useRef(activating)
 
-  const viaGoogle = !activating && isGoogleLoginWord(username)
-  const usernameLabel = activating ? 'รหัสนักศึกษา' : 'ชื่อผู้ใช้'
-  const passwordLabel = activating ? 'รหัสผ่านชั่วคราว' : 'รหัสผ่าน'
+  const viaGoogle = isGoogleLoginWord(username)
+  const studentId = studentIdKey(username)
+  const firstTime = !viaGoogle && activation?.studentId === studentId && activation.firstTime
 
   useEffect(() => {
-    document.title = `${activating ? 'เปิดใช้งานบัญชี' : 'เข้าสู่ระบบ'} · ${CLUB_NAME}`
-    if (previousMode.current !== activating) usernameRef.current?.focus()
-    previousMode.current = activating
-  }, [activating])
+    document.title = `เข้าสู่ระบบ · ${CLUB_NAME}`
+  }, [])
+
+  // รอหยุดพิมพ์ก่อนตรวจ และยกเลิกคำขอเก่าเมื่อชื่อผู้ใช้เปลี่ยน: คำตอบของรหัสเดิมไม่เปลี่ยนฟอร์มของรหัสใหม่
+  useEffect(() => {
+    if (status !== 'anonymous' || viaGoogle || !studentId || studentId.length > 64 || busy || leaving) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      if (composing.current) return
+      try {
+        const result = await memberActivationStatus(studentId, controller.signal)
+        if (!controller.signal.aborted) setActivation({ studentId, firstTime: result.firstTime })
+      } catch {
+        // คำแนะนำโหลดไม่ได้ยังเข้าสู่ระบบได้ตามปกติ; server ตรวจรหัสและบังคับตั้งรหัสใหม่เหมือนเดิม
+        if (!controller.signal.aborted) setActivation({ studentId, firstTime: false })
+      }
+    }, 450)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [studentId, viaGoogle, status, busy, leaving])
 
   // เลือกช่องทาง Google: ล้างรหัสผ่านที่พิมพ์ค้างไว้ทันที เมื่อกลับมาเป็นช่องทางสมาชิก ช่องรหัสผ่านจึงว่างเสมอ
   useEffect(() => {
@@ -101,7 +115,8 @@ export function LoginPage() {
     if (saved && input && document.activeElement === input) input.setSelectionRange(saved[0], saved[1])
   }, [username])
 
-  // เข้าสู่ระบบแล้ว: สมาชิกไปหน้าสมาชิก ทีมงานไปหลังบ้าน ไม่พาข้ามฝั่งตามค่า return ที่ส่งมา
+  // ตรวจรหัสสำเร็จแล้วจึงดูสถานะบัญชี: รหัสชั่วคราวไปตั้งรหัสใหม่ ส่วนบัญชีที่เปิดใช้แล้วไปหน้าสมาชิก
+  // ทีมงานไปหลังบ้าน ไม่พาข้ามฝั่งตามค่า return ที่ส่งมา
   if (status === 'ready' && member) return <Navigate to={member.mustChangePassword ? '/member/password' : isMemberPath(returnPath) ? returnPath : '/member'} replace />
   if (status === 'ready' && user) return <Navigate to={isMemberPath(returnPath) ? '/' : returnPath} replace />
 
@@ -122,8 +137,8 @@ export function LoginPage() {
     event.preventDefault()
     if (busy || leaving) return
     const name = lowerAscii(username.trim())
-    const google = !activating && isGoogleLoginWord(name)
-    const found = { username: name ? undefined : `กรอก${usernameLabel}`, password: google || password ? undefined : `กรอก${passwordLabel}` }
+    const google = isGoogleLoginWord(name)
+    const found = { username: name ? undefined : 'กรอกชื่อผู้ใช้', password: google || password ? undefined : firstTime ? 'กรอกรหัสผ่านชั่วคราว' : 'กรอกรหัสผ่าน' }
     setFieldErrors(found)
     setSubmitError('')
     if (found.username) return usernameRef.current?.focus()
@@ -154,35 +169,27 @@ export function LoginPage() {
   const alert = submitError || googleError
   const waiting = busy || leaving
 
-  const switchMode = () => {
-    if (waiting) return
-    setActivating((current) => !current)
-    setPassword('')
-    setFieldErrors({})
-    setSubmitError('')
-  }
-
   return (
     <LoginShell>
-      <h1 className="login-title">{activating ? 'เปิดใช้งานบัญชี' : 'เข้าสู่ระบบ'}</h1>
-      <p className="login-welcome">{activating ? 'ใช้รหัสผ่านชั่วคราวที่ทีมงานออกให้ แล้วตั้งรหัสผ่านของตัวเองก่อนเริ่มใช้งาน' : 'ยินดีต้อนรับ ดูกิจกรรมและไฟล์ของชมรมได้ที่นี่'}</p>
+      <h1 className="login-title">เข้าสู่ระบบ</h1>
+      <p className="login-welcome">ยินดีต้อนรับ ดูกิจกรรมและไฟล์ของชมรมได้ที่นี่</p>
 
       {/* แสดงเฉพาะเมื่อ server ยืนยันว่าไม่มี session แล้วจริง */}
       {params.get('loggedOut') && !googleError && status === 'anonymous' && <p className="notice">ออกจากระบบแล้ว</p>}
 
       <section className="login-card" aria-labelledby="login-context">
-        <h2 id="login-context">{viaGoogle ? 'สำหรับทีมงาน' : activating ? 'สำหรับสมาชิกใหม่' : 'สำหรับสมาชิก'}</h2>
+        <h2 id="login-context">{viaGoogle ? 'สำหรับทีมงาน' : 'สำหรับสมาชิก'}</h2>
         <form onSubmit={submit} noValidate className="form">
           {alert && (
             <p className="form-alert" role="alert">
               {alert}
             </p>
           )}
-          <Field label={usernameLabel} htmlFor="login-username" error={fieldErrors.username}>
+          <Field label="ชื่อผู้ใช้" htmlFor="login-username" error={fieldErrors.username}>
             <input
               id="login-username"
               className="login-username"
-              placeholder={usernameLabel}
+              placeholder="ชื่อผู้ใช้"
               ref={usernameRef}
               type="text"
               inputMode="text"
@@ -202,6 +209,16 @@ export function LoginPage() {
               {...fieldAria('login-username', fieldErrors.username)}
             />
           </Field>
+
+          {firstTime && (
+            <div className="notice" role="status">
+              <KeyRound aria-hidden="true" size={20} />
+              <div>
+                <strong>เปิดใช้งานบัญชีครั้งแรก</strong>
+                <p>กรอกรหัสผ่านชั่วคราวที่ทีมงานออกให้ แล้วตั้งรหัสผ่านของตัวเอง</p>
+              </div>
+            </div>
+          )}
 
           {viaGoogle ? (
             // ช่องรหัสผ่านถูกเอาออกจากหน้า (ไม่เหลือในลำดับ Tab) และข้อความนี้ถูกอ่านให้ผู้ใช้โปรแกรมอ่านหน้าจอทราบว่าฟอร์มเปลี่ยน
@@ -239,9 +256,8 @@ export function LoginPage() {
             </div>
           ) : (
             <PasswordField
-              key={activating ? 'temporary-password' : 'member-password'}
               id="login-password"
-              label={passwordLabel}
+              label={firstTime ? 'รหัสผ่านชั่วคราว' : 'รหัสผ่าน'}
               value={password}
               onChange={(value) => {
                 setPassword(value)
@@ -254,19 +270,11 @@ export function LoginPage() {
           )}
 
           <button type="submit" className="button button-primary button-large" aria-disabled={waiting || (viaGoogle ? !googleReady : status === 'loading')}>
-            {waiting ? <LoaderCircle aria-hidden="true" size={18} className="spin" /> : activating ? <KeyRound aria-hidden="true" size={18} /> : <LogIn aria-hidden="true" size={18} />}
-            {busy ? activating ? 'กำลังตรวจรหัสชั่วคราว…' : 'กำลังเข้าสู่ระบบ…' : leaving ? 'กำลังไปที่ Google…' : activating ? 'เปิดใช้งานบัญชี' : 'เข้าสู่ระบบ'}
+            {waiting ? <LoaderCircle aria-hidden="true" size={18} className="spin" /> : <LogIn aria-hidden="true" size={18} />}
+            {busy ? 'กำลังเข้าสู่ระบบ…' : leaving ? 'กำลังไปที่ Google…' : 'เข้าสู่ระบบ'}
           </button>
         </form>
-        {!viaGoogle && (
-          <>
-            <button type="button" className="button button-large" onClick={switchMode} disabled={waiting}>
-              {activating ? <ArrowLeft aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}
-              {activating ? 'กลับไปเข้าสู่ระบบ' : 'เปิดใช้งานบัญชีครั้งแรก'}
-            </button>
-            <p className="login-forgot">{activating ? 'ยังไม่มีรหัสผ่านชั่วคราว? ติดต่อทีมงานของชมรมเพื่อเปิดบัญชี' : 'ลืมรหัสผ่าน? ติดต่อทีมงานของชมรมเพื่อตั้งรหัสผ่านใหม่'}</p>
-          </>
-        )}
+        {!viaGoogle && <p className="login-forgot">ลืมรหัสผ่าน? ติดต่อทีมงานของชมรมเพื่อตั้งรหัสผ่านใหม่</p>}
       </section>
     </LoginShell>
   )
