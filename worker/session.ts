@@ -56,17 +56,18 @@ export async function loadSession(request: Request, env: AppEnv): Promise<Sessio
 
   if (token.startsWith(MEMBER_TOKEN_PREFIX)) {
     const row = await env.DB.prepare(
-      `SELECT m.id, m.name, m.nickname, a.login_id, a.must_change_password
+      `SELECT m.id, m.name, m.nickname, a.login_id, a.must_change_password, s.created_at AS authenticated_at
          FROM member_sessions s
          JOIN member_accounts a ON a.member_id = s.member_id
          JOIN members m ON m.id = a.member_id
         WHERE s.token_hash = ? AND s.expires_at > ? AND a.status = 'active' AND m.status = 'active'`,
     )
       .bind(tokenHash, nowIso())
-      .first<{ id: string; name: string; nickname: string; login_id: string; must_change_password: number }>()
+      .first<{ id: string; name: string; nickname: string; login_id: string; must_change_password: number; authenticated_at: string }>()
     if (!row) return null
     return {
       kind: 'member',
+      authenticatedAt: row.authenticated_at,
       member: { id: row.id, name: row.name, nickname: row.nickname, studentId: row.login_id, mustChangePassword: row.must_change_password === 1 },
       tokenHash,
       csrfToken: await csrfFor(token),

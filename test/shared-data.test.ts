@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { call, data, env, key, resetDb, seedUser } from './helpers'
 import type { Actor } from './helpers'
 
-const MEMBER = { name: 'สมชาย ทดสอบ', nickname: 'ชาย', role: 'member', status: 'active', contact: 'discord: chai', note: '' }
+const MEMBER = { name: 'สมชาย ทดสอบ', nickname: 'ชาย', studentId: '6543210', role: 'member', status: 'active', contact: 'discord: chai', note: '' }
 const EVENT = { title: 'ซ้อมทีม', allDay: false, start: '2026-10-10T18:00', end: '2026-10-10T20:00', location: 'ห้อง 1', description: '' }
 
 let a: Actor
@@ -118,16 +118,16 @@ describe('สมาชิก: ข้อมูลร่วมกัน', () => {
     expect(different.status).toBe(422)
     expect((await data(different)).error).toBe('idempotency_mismatch')
     // ผู้ใช้อีกคนใช้ key เดียวกันได้ เป็นคนละคำสั่ง
-    expect((await createMember(b, MEMBER, idem)).status).toBe(201)
+    expect((await createMember(b, { ...MEMBER, studentId: '6543211' }, idem)).status).toBe(201)
     expect((await data(await call('/api/members', { as: a }))).members).toHaveLength(2)
   })
 
   it('การแก้รายการหนึ่งไม่กระทบรายการอื่นที่อีกคนเพิ่งแก้ (ไม่มีการเขียนทั้งก้อน)', async () => {
     const one = (await data(await createMember(a, { ...MEMBER, name: 'หนึ่ง' }))).member
-    const two = (await data(await createMember(a, { ...MEMBER, name: 'สอง' }))).member
+    const two = (await data(await createMember(a, { ...MEMBER, studentId: '6543211', name: 'สอง' }))).member
     // B โหลดข้อมูลทั้งหมดไว้ก่อน แล้ว A แก้รายการ "สอง"
     await call('/api/members', { as: b })
-    await call(`/api/members/${two.id}`, { method: 'PATCH', as: a, body: { ...MEMBER, name: 'สอง', note: 'A แก้', expectedVersion: 1 } })
+    await call(`/api/members/${two.id}`, { method: 'PATCH', as: a, body: { ...MEMBER, studentId: '6543211', name: 'สอง', note: 'A แก้', expectedVersion: 1 } })
     // B แก้รายการ "หนึ่ง" จากข้อมูลที่โหลดไว้เดิม
     const res = await call(`/api/members/${one.id}`, { method: 'PATCH', as: b, body: { ...MEMBER, name: 'หนึ่ง', note: 'B แก้', expectedVersion: 1 } })
     expect(res.status).toBe(200)

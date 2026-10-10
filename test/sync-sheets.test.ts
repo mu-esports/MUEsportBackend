@@ -30,12 +30,17 @@ async function linkSheet(rows: string[][], options: { head?: string[]; columns?:
   const sheet = ws.addSheet('ทะเบียนสมาชิก', [options.head ?? HEAD, ...rows], { canEdit: options.canEdit })
   const res = await call('/api/setup/link', { method: 'POST', as: admin, body: { kind: 'sheets', resourceId: sheet.id, sheetId: 0, headerRow: 1, columns: options.columns ?? COLUMNS, ...options.extra } })
   expect(res.status, JSON.stringify(await res.clone().json())).toBe(201)
+  // ชีตเก่านี้ไม่มีคอลัมน์รหัสนักศึกษา: ทะเบียนทดสอบมีรหัสที่กรอกไว้ในเว็บแล้ว เพื่อให้แก้ข้อมูลผ่านฟอร์มได้
+  const legacy = await env.DB.prepare("SELECT id FROM members WHERE student_id = '' ORDER BY id").all<{ id: string }>()
+  for (const [i, row] of legacy.results.entries()) {
+    await env.DB.prepare("UPDATE members SET student_id = ?, student_id_origin = 'web' WHERE id = ?").bind(`65410${String(i).padStart(2, '0')}`, row.id).run()
+  }
   return sheet
 }
 const members = async () => (await data(await call('/api/members', { as: staff }))).members as Record<string, any>[]
 const member = async (id: string) => (await members()).find((m) => m.id === id)!
 const input = (m: Record<string, any>, changes: Record<string, unknown> = {}) => ({
-  name: m.name, nickname: m.nickname, role: m.role, status: m.status, contact: m.contact, note: m.note, expectedVersion: m.version, ...changes,
+  name: m.name, nickname: m.nickname, studentId: m.studentId, role: m.role, status: m.status, contact: m.contact, note: m.note, expectedVersion: m.version, ...changes,
 })
 const patch = (id: string, body: unknown) => call(`/api/members/${id}`, { method: 'PATCH', as: staff, body })
 const status = async () => (await data(await call('/api/sync', { as: staff }))).sync.find((s: any) => s.kind === 'sheets')
@@ -216,7 +221,7 @@ describe('เว็บ → Google Sheets', () => {
 
   it('เพิ่มสมาชิกจากเว็บ: ต่อแถวใหม่พร้อมรหัส และคำขอเดิมที่ลองใหม่หลังคำตอบของ Google หายไม่สร้างแถวซ้ำ', async () => {
     const sheet = await linkSheet([ROW_A])
-    const body = { name: 'เอกชัย ใหม่', nickname: 'เอก', role: 'member', status: 'active', contact: '0812345678', note: '' }
+    const body = { name: 'เอกชัย ใหม่', nickname: 'เอก', studentId: '6543212', role: 'member', status: 'active', contact: '0812345678', note: '' }
     const idem = key()
     loseResponseOnce(google, ws, (url) => url.pathname.endsWith(':batchUpdate'))
     const first = await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': idem }, body })
@@ -252,6 +257,7 @@ describe('เว็บ → Google Sheets', () => {
     // ค่าที่แสดงของสูตรไม่ใช่สถานะที่รองรับ จึงถูกรายงานเป็นแถวที่ต้องแก้ และแก้จากเว็บไม่ได้
     ws.cells(sheet.id)[1][4] = 'ใช้งาน'
     await syncNow('sheets', staff)
+    await env.DB.prepare("UPDATE members SET student_id = '6543213', student_id_origin = 'web' WHERE id = 'id-f'").run()
     ws.cells(sheet.id)[1][5] = '=A2'
     const m = await member('id-f')
     const res = await patch('id-f', input(m, { contact: 'ใหม่' }))
@@ -311,7 +317,7 @@ describe('เว็บ → Google Sheets', () => {
     const res = await patch('id-a', input(a, { note: 'x' }))
     expect(res.status).toBe(403)
     expect((await data(res)).error).toBe('source_read_only')
-    const add = await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': key() }, body: input(a) })
+    const add = await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': key() }, body: input(a, { studentId: '6543214' }) })
     expect(add.status).toBe(403)
     expect(ws.cells(sheet.id)).toHaveLength(2)
   })
@@ -319,7 +325,10 @@ describe('เว็บ → Google Sheets', () => {
 
 describe('ตั้งค่าชีตและข้อมูลเดิม', () => {
   const MEMBER = { name: 'เดิม ในเว็บ', nickname: 'เดิม', role: 'staff', status: 'active', contact: 'c', note: 'n' }
-  const addLocal = async (body = MEMBER) => (await data(await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': key() }, body }))).member
+  const addLocal = async (body = MEMBER) => {
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM members').first<{ n: number }>()
+    return (await data(await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': key() }, body: { ...body, studentId: `65420${String(count!.n).padStart(2, '0')}` } }))).member
+  }
 
   it('preview ก่อนเชื่อม: หัวคอลัมน์ การจับคู่ที่เสนอ จำนวนแถว รายการซ้ำ และสมาชิกในเว็บที่ยังไม่อยู่ในชีต โดยไม่เขียนอะไร', async () => {
     const local = await addLocal()

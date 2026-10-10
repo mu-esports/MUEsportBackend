@@ -56,6 +56,8 @@ export interface StaffSession extends SessionBase {
 export interface MemberSession extends SessionBase {
   kind: 'member'
   member: SessionMember
+  /** เวลาที่ server ออก session หลังตรวจรหัสผ่าน ใช้ยืนยันการตั้งรหัสแทนการขอรหัสชั่วคราวซ้ำ */
+  authenticatedAt: string
 }
 
 /** session ระบุชนิดของผู้เข้าสู่ระบบเสมอ handler ต้องเลือก guard ตามชนิดที่ยอมรับ */

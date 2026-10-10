@@ -510,31 +510,45 @@ async function updateMe(ctx: Ctx): Promise<Response> {
 }
 
 /**
- * POST /api/member/password — สมาชิกเปลี่ยนรหัสผ่านของตัวเอง (รวมถึงการเปลี่ยนรหัสชั่วคราวครั้งแรก)
+ * POST /api/member/password/setup — ตั้งรหัสส่วนตัวจาก session หลังตรวจรหัสชั่วคราวแล้ว
+ * POST /api/member/password — เส้นทางเดิมที่ตรวจรหัสปัจจุบัน เพื่อรองรับ client รุ่นก่อน
  * สำเร็จแล้ว session เดิมทั้งหมดของบัญชีถูกยกเลิก และเบราว์เซอร์นี้ได้ session ใหม่
  */
-async function changePassword(ctx: Ctx): Promise<Response> {
+async function changePassword(ctx: Ctx, usingLogin = false): Promise<Response> {
   const session = await requireMemberMutation(ctx, { allowPasswordChange: true })
   const body = await readJson(ctx.request, 4096)
   const current = typeof body.currentPassword === 'string' ? body.currentPassword : ''
-  if (!current) throw invalid('กรอกรหัสผ่านปัจจุบัน', 'currentPassword')
+  if (!usingLogin && !current) throw invalid('กรอกรหัสผ่านปัจจุบัน', 'currentPassword')
   const id = session.member.id
   const account = await ctx.env.DB.prepare('SELECT a.login_id, a.password_hash, a.must_change_password, m.student_id FROM member_accounts a JOIN members m ON m.id = a.member_id WHERE a.member_id = ?')
     .bind(id)
     .first<{ login_id: string; password_hash: string; must_change_password: number; student_id: string }>()
   if (!account) throw new HttpError(401, 'unauthenticated', 'ยังไม่ได้เข้าสู่ระบบ หรือเซสชันหมดอายุแล้ว')
   if (account.must_change_password !== 1) throw new HttpError(403, 'admin_reset_required', 'ติดต่อผู้ดูแลเพื่อรับรหัสผ่านชั่วคราวก่อนเปลี่ยนรหัสผ่าน')
+  if (usingLogin) {
+    const age = Date.now() - Date.parse(session.authenticatedAt)
+    if (!Number.isFinite(age) || age < 0 || age >= 15 * 60_000) {
+      throw new HttpError(409, 'password_setup_expired', 'การยืนยันตัวตนสำหรับตั้งรหัสผ่านหมดอายุแล้ว ออกจากระบบแล้วเข้าสู่ระบบด้วยรหัสชั่วคราวอีกครั้ง')
+    }
+  }
   const next = newPassword(body, 'newPassword', 'รหัสผ่านใหม่', [account.login_id, account.student_id])
-  if (normalizePassword(next) === normalizePassword(current)) throw invalid('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน', 'newPassword')
+  if (!usingLogin && normalizePassword(next) === normalizePassword(current)) throw invalid('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน', 'newPassword')
 
   // การเดารหัสผ่านปัจจุบันผ่าน session ที่ถูกขโมยถูกจำกัดด้วยตัวนับเดียวกับการเข้าสู่ระบบ
   const reserved = await reserveAttempt(ctx.env, account.login_id, ctx.request)
   if (!reserved.allowed) throw await tooMany(ctx.env, reserved)
-  const currentProof = readMaterial(body.currentProof)
+  const currentProof = readMaterial(usingLogin ? body.comparisonProof : body.currentProof)
   const nextProof = readMaterial(body.passwordProof, true)
   if ((!currentProof || !nextProof) && ctx.env.PASSWORD_HASH_MODE !== 'server-test') throw invalid('เตรียมรหัสผ่านไม่สำเร็จ กรุณาลองใหม่', 'newPassword')
-  const correct = currentProof ? await verifyMaterial(ctx.env, id, account.password_hash, currentProof) : verifyPassword(current, account.password_hash).ok
-  if (passwordLength(current) > MAX_PASSWORD_LENGTH || !correct) {
+  if (usingLogin && currentProof) {
+    const expected = storedPassword(account.password_hash)?.challenge
+    if (!expected || ['salt', 'm', 't', 'p'].some(key => currentProof[key as keyof typeof currentProof] !== expected[key as keyof typeof expected])) {
+      throw new HttpError(409, 'password_changed', 'บัญชีมีการเปลี่ยนแปลงระหว่างบันทึก กรุณาเข้าสู่ระบบใหม่')
+    }
+  }
+  const matches = currentProof ? await verifyMaterial(ctx.env, id, account.password_hash, currentProof) : verifyPassword(usingLogin ? next : current, account.password_hash).ok
+  if (usingLogin && matches) throw invalid('รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านชั่วคราว', 'newPassword')
+  if (!usingLogin && (passwordLength(current) > MAX_PASSWORD_LENGTH || !matches)) {
     throw new HttpError(403, 'wrong_password', 'รหัสผ่านปัจจุบันไม่ถูกต้อง ยังไม่ได้เปลี่ยนรหัสผ่าน', { field: 'currentPassword' })
   }
 
@@ -542,7 +556,10 @@ async function changePassword(ctx: Ctx): Promise<Response> {
   const now = nowIso()
   const fresh = await newMemberSession(ctx.env, id, ctx.url, hash)
   const changed = await ctx.env.DB.batch([
-    ctx.env.DB.prepare("UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ?, revision = ? WHERE member_id = ? AND password_hash = ? AND status = 'active' AND must_change_password = 1").bind(hash, now, now, newRevision(), id, account.password_hash),
+    ctx.env.DB.prepare(`UPDATE member_accounts SET password_hash = ?, must_change_password = 0, password_set_at = ?, password_set_by = NULL, updated_at = ?, revision = ?
+      WHERE member_id = ? AND password_hash = ? AND status = 'active' AND must_change_password = 1
+        AND EXISTS (SELECT 1 FROM member_sessions WHERE member_id = ? AND token_hash = ? AND expires_at > ?)`)
+      .bind(hash, now, now, newRevision(), id, account.password_hash, id, session.tokenHash, now),
     ctx.env.DB.prepare('DELETE FROM member_sessions WHERE member_id = ? AND EXISTS (SELECT 1 FROM member_accounts WHERE member_id = ? AND password_hash = ?)').bind(id, id, hash),
     fresh.insert,
   ])
@@ -594,6 +611,7 @@ async function calendar(ctx: Ctx): Promise<Response> {
 
 export async function handleMemberSelf(ctx: Ctx, parts: string[]): Promise<Response | null> {
   const method = ctx.request.method
+  if (parts.length === 2 && parts[0] === 'password' && parts[1] === 'setup' && method === 'POST') return changePassword(ctx, true)
   if (parts.length !== 1) return null
   if (parts[0] === 'me' && method === 'GET') return me(ctx)
   if (parts[0] === 'me' && method === 'PATCH') return updateMe(ctx)

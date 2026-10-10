@@ -40,12 +40,12 @@ export const memberApi = {
   updateProfile: (email: string, contacts: import('../lib/contacts').ContactChannel[], expectedVersion: number) => api<{ok:true}>('/api/member/profile', {method:'PATCH',body:{email,contacts,expectedVersion}}),
   updateContact: async (contact: string, expectedVersion: number) =>
     (await api<{ member: MemberSelf }>('/api/member/me', { method: 'PATCH', body: { contact, expectedVersion } })).member,
-  changePassword: async (currentPassword: string, newPassword: string) => {
-    const session = await api<{ member: { studentId: string } }>('/api/session')
-    const challenge = await memberPasswordChallenge(session.member.studentId)
-    const currentProof = await passwordMaterial(currentPassword, challenge)
+  setupPassword: async (studentId: string, newPassword: string) => {
+    const challenge = await memberPasswordChallenge(studentId)
+    // คำนวณจากรหัสใหม่เพื่อตรวจว่าไม่ซ้ำกับรหัสชั่วคราว ไม่เก็บหรือส่งต่อรหัสที่ใช้ login
+    const comparisonProof = await passwordMaterial(newPassword, challenge)
     const passwordProof = await passwordMaterial(newPassword)
-    return api<{ ok: true; csrfToken: string }>('/api/member/password', { method: 'POST', body: { currentPassword, newPassword, currentProof, passwordProof } })
+    return api<{ ok: true; csrfToken: string }>('/api/member/password/setup', { method: 'POST', body: { newPassword, comparisonProof, passwordProof } })
   },
   events: async () => (await api<{ events: MemberEvent[] }>('/api/member/events')).events,
   calendar: async (month: string, signal?: AbortSignal) => api<{ month: string; events: MemberEvent[]; truncated: boolean }>(`/api/member/calendar?month=${encodeURIComponent(month)}`, { signal }),

@@ -71,8 +71,8 @@ describe('Free-compatible Argon2id client work and keyed server verifier', () =>
     expect((await data(response.clone())).mustChangePassword).toBe(true)
     const cookie = response.headers.get('Set-Cookie')!.split(';')[0]
     const session = await data(await call('/api/session', { cookie }))
-    const changed = await call('/api/member/password', { method: 'POST', cookie, headers: { 'X-CSRF-Token': session.csrfToken }, body: {
-      currentPassword: temp, newPassword: next, currentProof: make(temp, await challenge('6501234')), passwordProof: make(next),
+    const changed = await call('/api/member/password/setup', { method: 'POST', cookie, headers: { 'X-CSRF-Token': session.csrfToken }, body: {
+      newPassword: next, comparisonProof: make(next, await challenge('6501234')), passwordProof: make(next),
     } })
     expect(changed.status).toBe(200)
     expect((await data(await call('/api/session', { cookie }))).member).toBeNull()
@@ -82,6 +82,24 @@ describe('Free-compatible Argon2id client work and keyed server verifier', () =>
     expect(row!.password_hash).not.toContain(temp)
     expect(row!.password_hash).not.toContain(next)
     expect(storedPassword(row!.password_hash)!.challenge).toMatchObject(PASSWORD_WORK)
+  })
+
+  it('setup requires valid client work, rejects reused temporary passwords and stale comparison seeds', async () => {
+    const member = await seed()
+    await env.DB.prepare('UPDATE member_accounts SET must_change_password = 1 WHERE member_id = ?').bind(member.id).run()
+    const response = await login('6501234', MEMBER_PASSWORD)
+    const cookie = response.headers.get('Set-Cookie')!.split(';')[0]
+    const session = await data(await call('/api/session', { cookie }))
+    const c = await challenge('6501234')
+    const next = 'Personal-New-Pass-1024'
+    const post = (body: unknown) => call('/api/member/password/setup', { method: 'POST', cookie, headers: { 'X-CSRF-Token': session.csrfToken }, body })
+    expect((await post({ newPassword: next })).status).toBe(422)
+    const reused = await post({ newPassword: MEMBER_PASSWORD, comparisonProof: make(MEMBER_PASSWORD, c), passwordProof: make(MEMBER_PASSWORD) })
+    expect(reused.status).toBe(422)
+    expect((await data(reused)).field).toBe('newPassword')
+    const stale = await post({ newPassword: next, comparisonProof: make(next), passwordProof: make(next) })
+    expect(stale.status).toBe(409)
+    expect((await data(stale)).error).toBe('password_changed')
   })
 
   it('enforces Origin and a separate metadata rate limit', async () => {

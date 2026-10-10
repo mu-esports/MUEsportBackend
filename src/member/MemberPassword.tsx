@@ -41,7 +41,7 @@ export function MemberPasswordPage() {
             ตั้งรหัสผ่านใหม่
           </h1>
           <p className="login-welcome">
-            สวัสดี {member.nickname || member.name} (รหัสนักศึกษา {member.studentId}) รหัสผ่านที่ทีมงานให้เป็นรหัสชั่วคราว ตั้งรหัสผ่านของตัวเองก่อนเริ่มใช้งาน
+            สวัสดี {member.nickname || member.name} (รหัสนักศึกษา {member.studentId}) ยืนยันรหัสชั่วคราวแล้ว ตั้งรหัสผ่านของตัวเองและยืนยันอีกครั้งก่อนเริ่มใช้งาน
           </p>
           <section className="login-card" aria-labelledby="first-password-title">
             <h2 id="first-password-title">
@@ -49,7 +49,6 @@ export function MemberPasswordPage() {
               เปลี่ยนรหัสผ่านชั่วคราว
             </h2>
             <PasswordForm
-              currentLabel="รหัสผ่านชั่วคราว"
               submitLabel="บันทึกรหัสผ่านใหม่"
               studentId={member.studentId}
               onChanged={() => {

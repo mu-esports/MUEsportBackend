@@ -22,8 +22,8 @@ function validate(v: MemberInput): Errors {
   else if (v.name.trim().length > 100) errors.name = 'ชื่อยาวได้ไม่เกิน 100 ตัวอักษร'
   if (!v.nickname.trim()) errors.nickname = 'กรอกชื่อเล่น'
   else if (v.nickname.trim().length > 40) errors.nickname = 'ชื่อเล่นยาวได้ไม่เกิน 40 ตัวอักษร'
-  // ว่างได้ (ยังไม่ได้กรอก) ถ้ากรอกต้องถูกรูปแบบ เก็บเป็นข้อความตามที่พิมพ์ ไม่แปลงเป็นตัวเลข
-  if (v.studentId.trim() && !STUDENT_ID_PATTERN.test(v.studentId.trim())) errors.studentId = STUDENT_ID_RULE
+  if (!v.studentId.trim()) errors.studentId = 'กรอกรหัสนักศึกษา'
+  else if (!STUDENT_ID_PATTERN.test(v.studentId.trim())) errors.studentId = STUDENT_ID_RULE
   else if (isGoogleLoginWord(v.studentId)) errors.studentId = 'รหัสนักศึกษาใช้คำว่า google ไม่ได้ เพราะเป็นคำที่ทีมงานใช้เลือกเข้าสู่ระบบด้วย Google'
   return errors
 }
@@ -198,17 +198,17 @@ export function MemberForm({ member, onClose, onSaved }: Props) {
           <Field
             label="รหัสนักศึกษา"
             htmlFor="member-student-id"
-            optional
             error={errors.studentId}
             hint={
               member?.account && member.account.state !== 'none'
                 ? 'สมาชิกนี้มีบัญชีแล้ว: แก้รหัสที่นี่ยังไม่เปลี่ยนรหัสที่ใช้เข้าสู่ระบบ จนกว่าผู้ดูแลจะยืนยันในรายละเอียดสมาชิก'
-                : 'กรอกได้ทั้งแบบมี u นำหน้าและตัวเลขล้วน เช่น u6501234 หรือ 6501234 (รหัสตัวอย่าง) ระบบเก็บตัวเลขและคงเลขศูนย์นำหน้า เว้นว่างได้ถ้ายังไม่ทราบ'
+                : 'ใช้เป็นชื่อผู้ใช้สำหรับเข้าบัญชีสมาชิก'
             }
           >
             <input
               id="member-student-id"
               type="text"
+              required
               inputMode="text"
               value={values.studentId}
               onChange={(e) => set('studentId', e.target.value)}

@@ -3,7 +3,7 @@ import { call, CLUB_EMAIL, data, env, key, resetDb, seedSession, seedUser } from
 
 beforeEach(resetDb)
 
-const MEMBER = { name: 'สมชาย ทดสอบ', nickname: 'ชาย', role: 'member', status: 'active', contact: '', note: '' }
+const MEMBER = { name: 'สมชาย ทดสอบ', nickname: 'ชาย', studentId: '6543210', role: 'member', status: 'active', contact: '', note: '' }
 
 describe('ยังไม่เข้าสู่ระบบ', () => {
   it('ทุกเส้นทางข้อมูลตอบ 401 เป็น JSON และห้าม cache', async () => {

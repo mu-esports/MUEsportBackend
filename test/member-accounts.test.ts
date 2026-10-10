@@ -28,18 +28,19 @@ describe('รหัสนักศึกษาในทะเบียน (ข�
     const results = await Promise.all([createMember(staff, { studentId: 'u6501234' }), createMember(staff, { studentId: '6501234' })])
     expect(results.map(r => r.status).sort()).toEqual([201,409])
   })
-  it('เก็บเป็นข้อความตามที่กรอก คงเลขศูนย์นำหน้า ตัดช่องว่างหัวท้าย และว่างได้', async () => {
+  it('เก็บเป็นข้อความ คงเลขศูนย์นำหน้า และบังคับรหัสนักศึกษาก่อนเพิ่มสมาชิก', async () => {
     const staff = await seedUser('staff@example.com', 'staff')
     const created = await data(await createMember(staff, { studentId: '  0012345 ' }))
     expect(created.member.studentId).toBe('0012345')
     expect((await memberRow(created.member.id))?.student_id).toBe('0012345')
-    const blank = await data(await createMember(staff, { name: 'ไม่มีรหัส' }))
-    expect(blank.member.studentId).toBe('')
-    // สมาชิกที่ยังไม่มีรหัสนักศึกษา: ข้อมูลอยู่ครบ แต่ยังเปิดบัญชีไม่ได้ พร้อมเหตุผล
-    expect(blank.member.account).toEqual({ state: 'none', loginId: null, loginMismatch: false, passwordSetAt: null, lastLoginAt: null, blocked: 'no_student_id', revision: null })
+    for (const studentId of [undefined, null, '', '   ']) {
+      const blank = await createMember(staff, { name: 'ไม่มีรหัส', studentId })
+      expect(blank.status).toBe(422)
+      expect(await data(blank)).toMatchObject({ field: 'studentId', message: 'กรอกรหัสนักศึกษา' })
+    }
     expect(created.member.account.blocked).toBeNull()
     const list = await data(await call('/api/members', { as: staff }))
-    expect(list.members.map((m: any) => m.studentId).sort()).toEqual(['', '0012345'])
+    expect(list.members.map((m: any) => m.studentId)).toEqual(['0012345'])
   })
 
   it('รูปแบบที่ไม่รองรับถูกปฏิเสธพร้อมบอกช่องที่ผิด และไม่มีการบันทึก', async () => {
@@ -68,10 +69,12 @@ describe('รหัสนักศึกษาในทะเบียน (ข�
     expect((await data(edit)).error).toBe('student_id_taken')
     expect((await memberRow(second.id))).toMatchObject({ student_id: '6500002', version: 1 })
     expect((await memberRow(first.id))).toMatchObject({ student_id: 'B6512345', version: 1 })
-    // แก้ตัวพิมพ์ของรหัสตัวเอง และล้างรหัสตัวเอง ทำได้
+    // แก้ตัวพิมพ์ของรหัสตัวเองได้ แต่ล้างรหัสที่ใช้เข้าบัญชีไม่ได้
     expect((await call(`/api/members/${first.id}`, { method: 'PATCH', as: staff, body: { ...INPUT, studentId: 'b6512345', expectedVersion: 1 } })).status).toBe(200)
-    expect((await call(`/api/members/${first.id}`, { method: 'PATCH', as: staff, body: { ...INPUT, studentId: '', expectedVersion: 2 } })).status).toBe(200)
-    expect((await memberRow(first.id))?.student_id).toBe('')
+    const cleared = await call(`/api/members/${first.id}`, { method: 'PATCH', as: staff, body: { ...INPUT, studentId: '', expectedVersion: 2 } })
+    expect(cleared.status).toBe(422)
+    expect((await data(cleared)).field).toBe('studentId')
+    expect((await memberRow(first.id))?.student_id).toBe('b6512345')
   })
 
   it('คำขอเพิ่มสมาชิกสองคำขอที่ใช้รหัสนักศึกษาเดียวกันพร้อมกัน สำเร็จได้เพียงคำขอเดียว', async () => {

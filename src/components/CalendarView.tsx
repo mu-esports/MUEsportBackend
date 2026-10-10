@@ -66,7 +66,6 @@ export function CalendarView({
   calendar, events, onOpenEvent, eventHref, emptyDayAction, emptyMonthAction, headingLevel = 2, titleRef, readOnly = false, contentState,
 }: CalendarViewProps) {
   const { todayDate, view, setView, month, selected, goToMonth, goToday, selectDay } = calendar
-  const panelRef = useRef<HTMLElement>(null)
   const panelHeadingRef = useRef<HTMLHeadingElement>(null)
   const MonthHeading = headingLevel === 2 ? 'h2' : 'h3'
   const DayHeading = headingLevel === 2 ? 'h3' : 'h4'
@@ -81,11 +80,6 @@ export function CalendarView({
   const listDays = days.filter((d) => monthOf(d) === month && (byDay.get(d)?.length ?? 0) > 0)
   const selectedEvents = eventsOnDate(events, selected)
 
-  // แผงรายการของวันอาจอยู่ใต้ตาราง จึงเลื่อนให้เห็นเมื่อเลือกวัน
-  const selectDayAndReveal = (day: string) => {
-    selectDay(day)
-    requestAnimationFrame(() => panelRef.current?.scrollIntoView({ block: 'nearest' }))
-  }
   // “อีก N รายการ” พาไปที่รายการของวันนั้นโดยตรง
   const openDayList = (day: string) => {
     selectDay(day)
@@ -167,7 +161,7 @@ export function CalendarView({
                     aria-label={`${formatDateLong(day)}${isToday ? ' (วันนี้)' : ''} ${
                       dayEvents.length ? `มี ${dayEvents.length} กำหนดการ` : 'ไม่มีกำหนดการ'
                     }`}
-                    onClick={() => selectDayAndReveal(day)}
+                    onClick={() => selectDay(day)}
                   >
                     <span className="month-day-number">{Number(day.slice(8))}</span>
                     {isToday && <span className="month-today-label">วันนี้</span>}
@@ -206,9 +200,9 @@ export function CalendarView({
             })}
           </div>
 
-          <section className="day-panel" ref={panelRef} aria-labelledby="day-panel-title">
+          <section className="day-panel" aria-labelledby="day-panel-title">
             <p className="day-panel-label">วันที่เลือก</p>
-            <DayHeading id="day-panel-title" className="day-panel-title" ref={panelHeadingRef} tabIndex={-1}>
+            <DayHeading id="day-panel-title" className="day-panel-title" ref={panelHeadingRef} tabIndex={-1} aria-live="polite">
               {formatDateLong(selected)}
               {selected === todayDate && <span className="today-tag">วันนี้</span>}
             </DayHeading>

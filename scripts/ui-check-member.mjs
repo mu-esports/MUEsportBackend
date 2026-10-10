@@ -632,9 +632,8 @@ try {
     // ตรวจที่หน้าเว็บ
     await p.getByRole('button', { name: 'บันทึกรหัสผ่านใหม่' }).click()
     check('[จริง] ฟอร์มตั้งรหัส: ช่องว่างถูกแจ้งที่แต่ละช่อง และ focus ไปช่องแรก',
-      (await p.locator('#password-current-error').innerText()) === 'กรอกรหัสผ่านชั่วคราว' && (await p.locator('#password-new-error').innerText()) === 'กรอกรหัสผ่านใหม่' &&
-      (await p.evaluate(() => document.activeElement?.id)) === 'password-current')
-    await p.locator('#password-current').fill(TEMP)
+      (await p.locator('#password-current').count()) === 0 && (await p.locator('#password-new-error').innerText()) === 'กรอกรหัสผ่านใหม่' &&
+      (await p.locator('#password-confirm-error').innerText()) === 'กรอกรหัสผ่านใหม่อีกครั้ง' && (await p.evaluate(() => document.activeElement?.id)) === 'password-new')
     await p.locator('#password-new').fill('short-1')
     await p.locator('#password-confirm').fill('short-1')
     await p.getByRole('button', { name: 'บันทึกรหัสผ่านใหม่' }).click()
@@ -648,21 +647,25 @@ try {
     const mismatch = await p.locator('#password-confirm-error').innerText()
     check('[จริง] ฟอร์มตั้งรหัส: รหัสสั้นเกิน และรหัสสองช่องไม่ตรงกัน ถูกแจ้งที่ช่องนั้นก่อนส่ง',
       tooShort.includes('อย่างน้อย 10 ตัวอักษร') && shortId.includes('อย่างน้อย 10 ตัวอักษร') && mismatch === 'รหัสผ่านใหม่สองช่องไม่ตรงกัน', [tooShort, shortId, mismatch].join(' | '))
-    // รหัสชั่วคราวผิด: server ตอบและบอกที่ช่องนั้น ค่าที่กรอกยังอยู่
-    await p.locator('#password-current').fill('Wrong-Temp-0000')
-    await p.locator('#password-confirm').fill(OWN)
+    // ไม่ขอรหัสชั่วคราวซ้ำ แต่ยังห้ามใช้รหัสชั่วคราวเป็นรหัสส่วนตัว
+    await p.locator('#password-new').fill(TEMP)
+    await p.locator('#password-confirm').fill(TEMP)
     await p.getByRole('button', { name: 'บันทึกรหัสผ่านใหม่' }).click()
-    await p.locator('#password-current-error').waitFor()
-    check('[จริง] รหัสชั่วคราวผิด: server แจ้งที่ช่องรหัสชั่วคราว ค่าที่กรอกในช่องอื่นยังอยู่ และยังอยู่หน้าเดิม',
-      (await p.locator('#password-current-error').innerText()).includes('รหัสผ่านปัจจุบันไม่ถูกต้อง') && (await p.locator('#password-new').inputValue()) === OWN &&
-      (await p.locator('#password-confirm').inputValue()) === OWN && p.url() === `${BASE}/member/password`)
+    await p.locator('#password-new-error').waitFor()
+    check('[จริง] ตั้งรหัสส่วนตัวซ้ำกับรหัสชั่วคราวไม่ได้: server แจ้งที่ช่องรหัสใหม่และยังอยู่หน้าเดิม',
+      (await p.locator('#password-new-error').innerText()).includes('ไม่ซ้ำกับรหัสผ่านชั่วคราว') && (await p.locator('#password-current').count()) === 0 && p.url() === `${BASE}/member/password`)
     await shot(p, 'member-first-password-1440')
 
-    await p.locator('#password-current').fill(TEMP)
+    await p.locator('#password-new').fill(OWN)
+    await p.locator('#password-confirm').fill(OWN)
+    const setupRequest = p.waitForRequest(r => r.url().endsWith('/api/member/password/setup'))
     await p.getByRole('button', { name: 'บันทึกรหัสผ่านใหม่' }).click()
     await p.waitForURL(`${BASE}/member`)
     check('[จริง] ตั้งรหัสผ่านใหม่สำเร็จ: ไปหน้าแรกของสมาชิกพร้อมข้อความแจ้งผล และ API ของสมาชิกใช้ได้',
       (await appears(p.getByText('ตั้งรหัสผ่านใหม่แล้ว'))) && (await appears(p.getByRole('heading', { name: 'สวัสดี ภูมิ', level: 1 }))) && (await apiAs(p, '/api/member/me')).status === 200)
+    const setupBody = (await setupRequest).postDataJSON()
+    check('[จริง] ใช้ session หลัง login ตั้งรหัสส่วนตัว: ไม่มีรหัสชั่วคราวหรือ proof ของรหัสชั่วคราวส่งซ้ำ',
+      !('currentPassword' in setupBody) && !('currentProof' in setupBody) && setupBody.comparisonProof && setupBody.passwordProof)
     await p.goto(`${BASE}/member/password`)
     await p.waitForURL(`${BASE}/member`)
     check('[จริง] เปลี่ยนรหัสแล้ว: หน้าตั้งรหัสชั่วคราวไม่เปิดซ้ำ', p.url() === `${BASE}/member`)
@@ -711,6 +714,15 @@ try {
     await p.getByRole('button', { name: /ซ้อมทีม Valorant/ }).waitFor()
     check(`[จริง] ${tag}: หน้าแรกแสดงเฉพาะปฏิทิน ไม่โหลดไฟล์ ข่าว หรือปุ่มบัญชีท้ายหน้า`,
       (await p.locator('.m-home-calendar .month-grid').isVisible()) && (await p.locator('.file-card, .m-card-link, .news-card, .m-event').count()) === 0)
+    const day = p.locator('.month-cell:not(.is-outside) .month-day[aria-pressed="false"]').first()
+    await day.scrollIntoViewIfNeeded()
+    const beforeDay = await p.evaluate(() => window.scrollY)
+    const dayLabel = await day.getAttribute('aria-label')
+    await day.click()
+    await p.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const selectedDay = await p.evaluate(() => ({ y: window.scrollY, focused: document.activeElement?.classList.contains('month-day'), heading: document.querySelector('.day-panel-title')?.textContent }))
+    check(`[จริง] ${tag}: เลือกวันแล้วอัปเดตรายละเอียดโดยไม่เลื่อนหน้าและ focus ยังอยู่ที่วัน`,
+      Math.abs(selectedDay.y - beforeDay) <= 1 && selectedDay.focused && dayLabel.startsWith(selectedDay.heading.trim()), JSON.stringify({ beforeDay, ...selectedDay }))
     const surface = await p.evaluate(() => ({ theme: document.documentElement.dataset.theme, scheme: getComputedStyle(document.documentElement).colorScheme }))
     check(`[จริง] ${tag}: ใช้ธีมมืดที่บันทึกไว้`, surface.theme === 'dark' && surface.scheme === 'dark', JSON.stringify(surface))
     await p.getByRole('switch', { name: 'ธีมมืด' }).click()

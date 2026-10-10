@@ -197,6 +197,7 @@ check('focus อยู่ที่ช่องแรกของฟอร์ม'
 await page.getByRole('button', { name: 'เพิ่มสมาชิก' }).last().click()
 check('validation: ชื่อว่าง', await page.locator('#member-name-error').isVisible())
 check('validation: ชื่อเล่นว่าง', await page.locator('#member-nickname-error').isVisible())
+check('validation: รหัสนักศึกษาบังคับกรอก', await page.locator('#member-student-id-error').isVisible())
 await page.locator('#member-name').fill('ทดสอบ ระบบตรวจ')
 await page.locator('#member-contact').fill('check@example.com')
 await page.getByRole('button', { name: 'เพิ่มสมาชิก' }).last().click()
@@ -215,6 +216,7 @@ check('กลับไปแก้ไขต่อ: ค่าเดิมยั�
 
 // บันทึก
 await page.locator('#member-nickname').fill('เช็ก')
+await page.locator('#member-student-id').fill('6543210')
 await page.getByRole('button', { name: 'เพิ่มสมาชิก' }).last().click()
 await page.locator('.toast').waitFor()
 check('เพิ่มสมาชิก: แจ้งผลสำเร็จ', (await page.locator('.toast').innerText()).includes('เพิ่มสมาชิก'))

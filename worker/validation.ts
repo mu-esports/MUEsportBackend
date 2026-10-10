@@ -30,12 +30,13 @@ const STUDENT_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,30}[A-Za-z0-9])?$/
 export const isStudentId = (value: string) => STUDENT_ID_PATTERN.test(value) && !isGoogleLoginWord(value)
 export const STUDENT_ID_RULE = 'ใช้ได้เฉพาะตัวเลข ตัวอักษรอังกฤษ และเครื่องหมาย - _ . คั่นกลาง ไม่มีช่องว่าง ยาวไม่เกิน 32 ตัวอักษร'
 
-/** รหัสนักศึกษาจากฟอร์ม: ว่างได้ (ยังไม่ได้กรอก) ถ้ากรอกต้องถูกรูปแบบ */
+/** รหัสนักศึกษาจากฟอร์มเพิ่ม/แก้สมาชิก: ต้องมีค่า เพราะใช้สำหรับเข้าบัญชี */
 export function studentIdField(body: Record<string, unknown>, field = 'studentId'): string {
   const raw = body[field]
-  if (raw === undefined || raw === null) return ''
+  if (raw === undefined || raw === null) throw invalid('กรอกรหัสนักศึกษา', field)
   if (typeof raw !== 'string') throw invalid('รหัสนักศึกษาไม่ถูกต้อง', field)
   const value = raw.trim()
+  if (!value) throw invalid('กรอกรหัสนักศึกษา', field)
   if (isGoogleLoginWord(value)) throw invalid('รหัสนักศึกษาใช้คำว่า google ไม่ได้ เพราะเป็นคำที่ทีมงานใช้เลือกเข้าสู่ระบบด้วย Google', field)
   if (value && !isStudentId(value)) throw invalid(`รหัสนักศึกษา${STUDENT_ID_RULE}`, field)
   return normalizeStudentId(value)

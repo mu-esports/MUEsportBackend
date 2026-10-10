@@ -232,7 +232,7 @@ describe('เว็บ → Google Forms', () => {
 describe('คำตอบ → ทะเบียนสมาชิก', () => {
   it('ตรวจก่อนเพิ่ม: เสนอค่าตามการจับคู่คำถาม เตือนรายการที่อาจซ้ำ เพิ่มแล้วเป็นสมาชิกธรรมดา ไม่แตะสิทธิ์ และคำตอบต้นฉบับไม่เปลี่ยน', async () => {
     const form = memberForm()
-    await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': 'existing-member-key-1' }, body: { name: 'อารี ใจดี', nickname: 'อา', role: 'member', status: 'active', contact: '', note: '' } })
+    await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': 'existing-member-key-1' }, body: { name: 'อารี ใจดี', nickname: 'อา', studentId: '6543210', role: 'member', status: 'active', contact: '', note: '' } })
     const dup = ws.submit(form.formId, { [qid(form, 0)]: 'อารี  ใจดี', [qid(form, 1)]: 'อารี', [qid(form, 3)]: 'aree@example.com' }, { at: '2026-10-01T03:00:00Z', email: 'aree@example.com' })
     const fresh = ws.submit(form.formId, { [qid(form, 0)]: 'admin ปลอม', [qid(form, 1)]: 'แอด', [qid(form, 3)]: 'staff@example.com' }, { at: '2026-10-02T03:00:00Z' })
     await linkForm(form)

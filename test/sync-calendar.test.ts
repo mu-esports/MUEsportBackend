@@ -92,7 +92,7 @@ describe('Google Calendar → เว็บ', () => {
   })
 
   it('sync token ใช้ไม่ได้แล้ว (410): ดึงใหม่ทั้งชุดเฉพาะปฏิทินนี้ ข้อมูลอื่นไม่ถูกล้าง และรายการที่หายระหว่างนั้นถูกยกเลิก', async () => {
-    await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': key() }, body: { name: 'สมาชิก', nickname: 'ส', role: 'member', status: 'active', contact: '', note: '' } })
+    await call('/api/members', { method: 'POST', as: staff, headers: { 'Idempotency-Key': key() }, body: { name: 'สมาชิก', nickname: 'ส', studentId: '6543210', role: 'member', status: 'active', contact: '', note: '' } })
     const calendar = ws.addCalendar('ปฏิทิน')
     const keep = ws.putEvent(calendar.id, timed('อยู่ต่อ', soon(1), soon(1, '20:00')))
     const gone = ws.putEvent(calendar.id, timed('จะหาย', soon(2), soon(2, '20:00')))

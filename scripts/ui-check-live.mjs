@@ -215,6 +215,7 @@ try {
   await a.getByRole('button', { name: 'เพิ่มสมาชิกคนแรก' }).click()
   await a.locator('#member-name').fill('สมหญิง ทดสอบร่วม')
   await a.locator('#member-nickname').fill('หญิง')
+  await a.locator('#member-student-id').fill('6543210')
   await a.getByRole('button', { name: 'เพิ่มสมาชิก' }).last().click()
   check('[จริง] A เพิ่มสมาชิก: แจ้งสำเร็จหลัง server ยืนยัน', await appears(a.locator('.toast', { hasText: 'เพิ่มสมาชิก “สมหญิง ทดสอบร่วม”' })))
 
@@ -281,6 +282,7 @@ try {
   await a.getByRole('button', { name: 'เพิ่มสมาชิก' }).first().click()
   await a.locator('#member-name').fill('คนที่ลองซ้ำ')
   await a.locator('#member-nickname').fill('ซ้ำ')
+  await a.locator('#member-student-id').fill('6543211')
   await a.getByRole('button', { name: 'เพิ่มสมาชิก' }).last().click()
   const dropAlert = a.locator('dialog[open] .form-alert')
   check('[จริง] คำตอบหายระหว่างทาง: แจ้งว่าเชื่อมต่อระบบกลางไม่ได้ (ไม่พูดถึงที่เก็บในเบราว์เซอร์) และค่าที่กรอกยังอยู่',
@@ -1841,7 +1843,7 @@ try {
     const tap = (p, selector) => p.locator(selector).evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().width > 0).map((el) => Math.round(el.getBoundingClientRect().height)))
 
     // ---------- สมาชิก: ที่มา เวลาอัปเดต กำลังซิงค์ ล้มเหลว อาจไม่ล่าสุด และไม่ทับร่าง ----------
-    const memberOf = (id, name, over = {}) => ({ id, name, nickname: name.slice(0, 2), role: 'member', status: 'active', contact: '', note: '', addedAt: '2026-10-01', version: 1, source: 'sheets', sourceState: 'ok', ...over })
+    const memberOf = (id, name, over = {}) => ({ id, name, nickname: name.slice(0, 2), studentId: `65430${id.slice(1).padStart(2, '0')}`, role: 'member', status: 'active', contact: '', note: '', addedAt: '2026-10-01', version: 1, source: 'sheets', sourceState: 'ok', ...over })
     for (const [width, height, theme] of [[1440, 900, 'light'], [390, 844, 'light'], [390, 844, 'dark'], [1440, 900, 'dark']]) {
       const tag = `[จำลอง] สมาชิก+ชีต ${width}px ธีม${theme === 'dark' ? 'มืด' : 'สว่าง'}`
       const p = await newPage(width, height, actors.a, 1)
@@ -2353,6 +2355,7 @@ try {
     await w.getByRole('button', { name: 'เพิ่มสมาชิก' }).first().click()
     await w.locator('#member-name').fill('เพิ่มจาก WebKit')
     await w.locator('#member-nickname').fill('เว็บคิต')
+    await w.locator('#member-student-id').fill('6543212')
     await w.getByRole('button', { name: 'เพิ่มสมาชิก' }).last().click()
     check('[WebKit][จริง] 390: เพิ่มสมาชิกผ่าน Worker และ D1 ได้ (cookie session และ CSRF ทำงาน)', await appears(w.locator('.toast', { hasText: 'เพิ่มจาก WebKit' })))
     await w.screenshot({ path: `${OUT}/live-webkit-members-390.png` })
