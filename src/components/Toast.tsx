@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CircleAlert, CircleCheck, X } from 'lucide-react'
+import { playExit } from './exitGhost'
 
 type Tone = 'success' | 'error'
 interface ToastItem {
@@ -53,20 +54,30 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div className="toast-region" role="status" aria-live="polite">
         {toast && openModals === 0 && (
-          <div key={toast.id} className={`toast toast-${toast.tone}`}>
-            {toast.tone === 'success' ? (
-              <CircleCheck aria-hidden="true" size={20} />
-            ) : (
-              <CircleAlert aria-hidden="true" size={20} />
-            )}
-            <span>{toast.message}</span>
-            <button type="button" className="icon-button" aria-label="ปิดข้อความ" onClick={() => setToast(null)}>
-              <X aria-hidden="true" size={18} />
-            </button>
-          </div>
+          <ToastView key={toast.id} toast={toast} onClose={() => setToast(null)} />
         )}
       </div>
     </ToastContext.Provider>
+  )
+}
+
+function ToastView({ toast, onClose }: { toast: ToastItem; onClose(): void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  // ตอนหายไป (ปิดเอง หมดเวลา หรือมีข้อความใหม่มาแทน): ให้เงาของข้อความจางออก
+  useLayoutEffect(() => {
+    const element = ref.current
+    return () => {
+      if (element) playExit(element, 'toast')
+    }
+  }, [])
+  return (
+    <div ref={ref} className={`toast toast-${toast.tone}`}>
+      {toast.tone === 'success' ? <CircleCheck aria-hidden="true" size={20} /> : <CircleAlert aria-hidden="true" size={20} />}
+      <span>{toast.message}</span>
+      <button type="button" className="icon-button" aria-label="ปิดข้อความ" onClick={onClose}>
+        <X aria-hidden="true" size={18} />
+      </button>
+    </div>
   )
 }
 

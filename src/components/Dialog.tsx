@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
+import { playExit } from './exitGhost'
 import { focusOrigin } from './focusOrigin'
 import { useToast } from './Toast'
 
@@ -49,6 +50,14 @@ export function Dialog({ title, description, onRequestClose, children, footer, s
       if (target?.isConnected) target.focus()
     }
   }, [modalOpened])
+
+  // ตอนปิด: ให้เงาของกล่องจางออก (เฉพาะภาพ) กล่องจริงปิดและคืน focus ทันทีตามเดิมใน effect ข้างบน
+  useLayoutEffect(() => {
+    const dialog = ref.current
+    return () => {
+      if (dialog?.open) playExit(dialog, 'dialog')
+    }
+  }, [])
 
   return (
     <dialog

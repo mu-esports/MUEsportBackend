@@ -1,0 +1,101 @@
+/* ---------- การเคลื่อนไหวของทั้งเว็บ (หลังบ้านและหน้าสมาชิก) ----------
+ * รวมกฎอนิเมชันไว้ไฟล์เดียว: ปรับจังหวะที่ตัวแปรด้านล่าง
+ * หลัก: สั้น เบา ใช้เฉพาะ opacity / transform / สี (ไม่เปลี่ยนขนาดหรือตำแหน่งของ layout) ไม่มีอนิเมชันวนซ้ำเพิ่ม
+ * และไม่มีส่วนใดรออนิเมชันก่อนแสดงเนื้อหาหรือก่อนรับการกด
+ * โหมดลดการเคลื่อนไหว (prefers-reduced-motion) ปิดทั้งหมดที่ท้ายไฟล์
+ */
+:root {
+  --motion-fast: 140ms;
+  --motion-page: 200ms;
+  --motion-dialog: 180ms;
+  --motion-exit: 140ms;
+  --motion-theme: 220ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  /* วงของธีมใหม่: ออกตัวเร็วแล้วผ่อนตอนถึงขอบจอ */
+  --ease-theme: cubic-bezier(0.3, 0.1, 0.3, 1);
+}
+
+/* focus จากคีย์บอร์ด: วงแหวนปรากฏทันที (ไม่หน่วง) แล้วขยับเข้าที่เล็กน้อยให้สังเกตง่าย
+   อยู่ก่อนกฎอื่น: ส่วนที่มีอนิเมชันเข้าของตัวเอง (หน้า กล่อง เมนู) ใช้ของตัวเอง */
+:focus-visible { animation: focus-in var(--motion-fast) var(--ease-out); }
+@keyframes focus-in { from { outline-offset: 5px; } }
+
+/* ---------- 1. เปลี่ยนหน้า ---------- */
+/* เนื้อหาอยู่ในหน้าและกดได้ตั้งแต่เฟรมแรก อนิเมชันเป็นแค่การจางเข้าและขยับ 6px */
+.page-enter, .login-main { animation: page-enter var(--motion-page) var(--ease-out); }
+@keyframes page-enter { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---------- 2. สลับธีม ---------- */
+/* ธีมใหม่แผ่ออกเป็นวงจากสวิตช์ที่กด (View Transitions ของเบราว์เซอร์: src/theme.ts) ทำงานบนภาพของหน้าทั้งภาพ
+   จึงเบากว่าการไล่สีทีละองค์ประกอบ และทุกจุดบนจอเป็นธีมเก่าหรือธีมใหม่เต็ม ๆ เสมอ ไม่มีช่วงที่ตัวอักษรกลืนกับพื้น
+   เบราว์เซอร์ที่ยังไม่รองรับ: ธีมเปลี่ยนทันทีเหมือนเดิม */
+/* ระหว่างสลับ: องค์ประกอบในหน้าเปลี่ยนเป็นสีของธีมใหม่ทันที (ไม่ไล่สีของตัวเองซ้อนอยู่ใต้วง) */
+:root.theme-switching *,
+:root.theme-switching *::before,
+:root.theme-switching *::after { transition: none !important; }
+:root.theme-switching::view-transition { pointer-events: none; }
+:root.theme-switching::view-transition-old(root) { animation: none; mix-blend-mode: normal; }
+:root.theme-switching::view-transition-new(root) { animation: theme-reveal var(--motion-theme) var(--ease-theme); mix-blend-mode: normal; }
+@keyframes theme-reveal {
+  from { clip-path: circle(0 at var(--theme-x, 50%) var(--theme-y, 0)); }
+  to { clip-path: circle(var(--theme-r, 150vmax) at var(--theme-x, 50%) var(--theme-y, 0)); }
+}
+.theme-switch-track { transition: background-color var(--motion-theme) ease; }
+.theme-switch-knob { transition: transform var(--motion-theme) var(--ease-out); }
+
+/* ---------- 3. ปุ่มและส่วนที่โต้ตอบได้ ---------- */
+/* hover / focus: เปลี่ยนสีอย่างนุ่มนวล  กด: ยุบลงเล็กน้อยด้วย transform (ไม่กระทบขนาดหรือตำแหน่งของสิ่งรอบข้าง) */
+.button, .icon-button, .nav-link, .text-link, .shortcut, .upcoming-link, .event-row, .calendar-step, .month-day, .month-span-target,
+.chip, .chip-allday, .chip-more, .segmented button, .news-card, .document-title, .password-toggle,
+.file-card, .file-category, .roster-card,
+.m-nav-link, .m-tab, .m-activity, .m-card-link, .m-home-event, .m-segment-button {
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    transform 90ms ease;
+}
+.table tbody tr { transition: background-color var(--motion-fast) ease; }
+input, select, textarea { transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease; }
+
+.button:active:not(:disabled):not([aria-disabled='true']),
+.file-category:active, .m-segment-button:active, .segmented button:active, .calendar-step:active { transform: translateY(1px); }
+.icon-button:active:not(:disabled), .password-toggle:active { transform: scale(0.94); }
+
+/* ---------- 4. Dialog, toast และสถานะโหลด ---------- */
+.dialog[open] { animation: dialog-enter var(--motion-dialog) var(--ease-out); }
+.dialog[open]::backdrop { animation: fade-in var(--motion-dialog) ease-out; }
+.mobile-menu[open] { animation: menu-in var(--motion-dialog) var(--ease-out); }
+.mobile-menu[open]::backdrop { animation: fade-in var(--motion-dialog) ease-out; }
+.toast { animation: toast-enter var(--motion-dialog) var(--ease-out); }
+@keyframes dialog-enter { from { opacity: 0; transform: translateY(8px) scale(0.985); } }
+@keyframes toast-enter { from { opacity: 0; transform: translateY(10px); } }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* ตอนปิด: เงาของกล่องที่เพิ่งปิด (src/components/exitGhost.ts) จางออก กล่องจริงปิดและคืน focus ไปแล้วตามเดิม */
+.dialog.exit-ghost[open] { animation: ghost-exit var(--motion-exit) var(--ease-in) forwards; }
+.mobile-menu.exit-ghost[open] { animation: menu-out var(--motion-exit) var(--ease-in) forwards; }
+@keyframes menu-out { to { transform: translateX(-100%); } }
+.toast.exit-ghost-toast { animation: toast-exit var(--motion-exit) var(--ease-in) forwards; }
+.exit-ghost-backdrop { position: fixed; inset: 0; background: var(--backdrop); animation: fade-out var(--motion-exit) ease-in forwards; }
+@keyframes ghost-exit { to { opacity: 0; transform: translateY(6px) scale(0.985); } }
+@keyframes toast-exit { to { opacity: 0; transform: translateY(8px); } }
+@keyframes fade-out { to { opacity: 0; } }
+
+/* สถานะโหลด / ว่าง / ผิดพลาด และข้อความแจ้งในหน้า: จางเข้า ไม่ขยับข้อความ */
+.state-block, .empty-state, .file-loading, .notice, .form-alert { animation: fade-in var(--motion-page) ease-out; }
+
+/* ---------- โหมดลดการเคลื่อนไหว ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .login-main, .dialog[open], .dialog[open]::backdrop, .mobile-menu[open], .mobile-menu[open]::backdrop, .toast,
+  .state-block, .empty-state, .file-loading, .notice, .form-alert, :focus-visible { animation: none; }
+  .button, .icon-button, .nav-link, .text-link, .shortcut, .upcoming-link, .event-row, .calendar-step, .month-day, .month-span-target,
+  .chip, .chip-allday, .chip-more, .segmented button, .news-card, .document-title, .password-toggle,
+  .file-card, .file-category, .roster-card,
+  .m-nav-link, .m-tab, .m-activity, .m-card-link, .m-home-event, .m-segment-button,
+  .table tbody tr, input, select, textarea, .theme-switch-track, .theme-switch-knob { transition: none; }
+  .button:active:not(:disabled):not([aria-disabled='true']), .file-category:active, .m-segment-button:active, .segmented button:active,
+  .calendar-step:active, .icon-button:active:not(:disabled), .password-toggle:active { transform: none; }
+}

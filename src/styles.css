@@ -259,7 +259,6 @@ main:focus { outline: none; }
   height: 20px;
   border-radius: 999px;
   background: #fff;
-  transition: transform 0.16s ease;
 }
 .theme-switch[aria-checked='true'] .theme-switch-icon { margin: 0 auto 0 0; }
 .theme-switch[aria-checked='true'] .theme-switch-knob { transform: translateX(30px); }
@@ -1553,20 +1552,6 @@ input[aria-invalid='true'], textarea[aria-invalid='true'], select[aria-invalid='
 @media (max-width: 599px) {
   .news-grid, .news-form { grid-template-columns: minmax(0, 1fr); }
   .news-filters > label { flex: 1 1 100%; }
-}
-
-/* จังหวะเคลื่อนไหวสั้น: ไม่เลื่อนข้อความขณะอ่าน ไม่เพิ่ม dependency หรือรอ animation ก่อนโหลดข้อมูล */
-.page-enter, .login-main { animation: page-enter 180ms ease-out; }
-.dialog[open] { animation: dialog-enter 150ms ease-out; }
-.toast { animation: page-enter 150ms ease-out; }
-.button, .icon-button, .nav-link, .m-nav-link, .m-tab, .news-card, .m-activity, .m-card-link, .file-card {
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
-}
-@keyframes page-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
-@keyframes dialog-enter { from { opacity: 0; transform: translateY(5px) scale(.99); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) {
-  .page-enter, .login-main, .dialog[open], .toast { animation: none; }
-  .button, .icon-button, .nav-link, .m-nav-link, .m-tab, .news-card, .m-activity, .m-card-link, .file-card { transition: none; }
 }
 
 /* Multi-day bars occupy continuous week lanes, with individual day targets retained. */

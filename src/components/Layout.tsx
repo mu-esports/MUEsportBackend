@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { FlaskConical, Gamepad2, LogOut, Menu, RotateCcw, TriangleAlert, X } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
@@ -7,6 +7,7 @@ import { APP_NAME } from '../config'
 import { useStore } from '../data/store'
 import { IS_DEMO } from '../mode'
 import { ConfirmDialog } from './Dialog'
+import { playExit } from './exitGhost'
 import { focusOrigin } from './focusOrigin'
 import { inNav, NAV, useNavItems } from './nav'
 import type { NavItem } from './nav'
@@ -85,6 +86,14 @@ function MobileMenu({ onClose, onNavigate, leaving }: { onClose(): void; onNavig
       if (opener?.isConnected) opener.focus()
     }
   }, [modalOpened])
+
+  // ตอนปิด: ให้เงาของเมนูเลื่อนออก (เฉพาะภาพ) เมนูจริงปิดและคืน focus ทันทีตามเดิม
+  useLayoutEffect(() => {
+    const dialog = ref.current
+    return () => {
+      if (dialog?.open) playExit(dialog, 'dialog')
+    }
+  }, [])
 
   return (
     <dialog
