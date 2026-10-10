@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react'
 import { api, createKeyTracker } from '../api/client'
 import { ConfirmDialog, Dialog } from '../components/Dialog'
 import { useToast } from '../components/Toast'
+import { CLUB_NAME } from '../config'
 import { Field } from '../components/ui'
 import { AppError, messageOf } from '../data/errors'
 import { useSetupInfo } from '../data/setup'
@@ -19,15 +20,15 @@ import { cancelPick, pickFile, preloadPicker } from '../lib/picker'
 const KINDS: ResourceKind[] = ['sheets', 'calendar', 'forms']
 const META: Record<ResourceKind, { icon: LucideIcon; service: string; use: string; noun: string; defaultName: string; creates: string }> = {
   sheets: {
-    icon: Table, service: 'Google Sheets', use: 'ทะเบียนสมาชิก', noun: 'ชีต', defaultName: 'MU Esport — ทะเบียนสมาชิก',
+    icon: Table, service: 'Google Sheets', use: 'ทะเบียนสมาชิก', noun: 'ชีต', defaultName: `${CLUB_NAME} — ทะเบียนสมาชิก`,
     creates: 'ไฟล์ Google Sheets ใหม่ พร้อมแถวหัวตาราง: รหัสสมาชิก ชื่อ ชื่อเล่น บทบาท สถานะ ช่องทางติดต่อ หมายเหตุ วันที่เพิ่ม รหัสนักศึกษา (ระบบจับคู่แถวด้วยคอลัมน์รหัสสมาชิก)',
   },
   calendar: {
-    icon: CalendarDays, service: 'Google Calendar', use: 'ปฏิทินชมรม', noun: 'ปฏิทิน', defaultName: 'MU Esport — กำหนดการ',
+    icon: CalendarDays, service: 'Google Calendar', use: 'ปฏิทินชมรม', noun: 'ปฏิทิน', defaultName: `${CLUB_NAME} — กำหนดการ`,
     creates: 'ปฏิทินใหม่ในบัญชีชมรม เขตเวลา Asia/Bangkok (ไม่แชร์ให้ใครและไม่เชิญแขกโดยอัตโนมัติ)',
   },
   forms: {
-    icon: ClipboardList, service: 'Google Forms', use: 'แบบฟอร์มของชมรม', noun: 'ฟอร์ม', defaultName: 'MU Esport — สมัครสมาชิก',
+    icon: ClipboardList, service: 'Google Forms', use: 'แบบฟอร์มของชมรม', noun: 'ฟอร์ม', defaultName: `${CLUB_NAME} — สมัครสมาชิก`,
     creates: 'ฟอร์มใหม่พร้อมคำถามตั้งต้น: ชื่อ-นามสกุล ชื่อเล่น ช่องทางติดต่อ หมายเหตุ (ฟอร์มยังไม่เผยแพร่จนกว่าจะเปิดเองใน Google Forms)',
   },
 }

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { Gamepad2, Info, LoaderCircle, LogIn, ShieldX, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Gamepad2, Info, KeyRound, LoaderCircle, LogIn, ShieldX, TriangleAlert } from 'lucide-react'
 import { loginMember } from '../auth/member-password'
 import { useAuth } from '../auth/AuthProvider'
 import { ThemeSwitch } from '../components/ThemeSwitch'
@@ -67,18 +67,24 @@ export function LoginPage() {
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({})
   const [submitError, setSubmitError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [activating, setActivating] = useState(false)
   // กำลังออกจากหน้านี้ไปหน้าของ Google: กันการกดซ้ำ
   const [leaving, setLeaving] = useState(false)
   const usernameRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const composing = useRef(false)
   const selection = useRef<[number | null, number | null] | null>(null)
+  const previousMode = useRef(activating)
 
-  const viaGoogle = isGoogleLoginWord(username)
+  const viaGoogle = !activating && isGoogleLoginWord(username)
+  const usernameLabel = activating ? 'รหัสนักศึกษา' : 'ชื่อผู้ใช้'
+  const passwordLabel = activating ? 'รหัสผ่านชั่วคราว' : 'รหัสผ่าน'
 
   useEffect(() => {
-    document.title = `เข้าสู่ระบบ · ${CLUB_NAME}`
-  }, [])
+    document.title = `${activating ? 'เปิดใช้งานบัญชี' : 'เข้าสู่ระบบ'} · ${CLUB_NAME}`
+    if (previousMode.current !== activating) usernameRef.current?.focus()
+    previousMode.current = activating
+  }, [activating])
 
   // เลือกช่องทาง Google: ล้างรหัสผ่านที่พิมพ์ค้างไว้ทันที เมื่อกลับมาเป็นช่องทางสมาชิก ช่องรหัสผ่านจึงว่างเสมอ
   useEffect(() => {
@@ -116,8 +122,8 @@ export function LoginPage() {
     event.preventDefault()
     if (busy || leaving) return
     const name = lowerAscii(username.trim())
-    const google = isGoogleLoginWord(name)
-    const found = { username: name ? undefined : 'กรอกชื่อผู้ใช้', password: google || password ? undefined : 'กรอกรหัสผ่าน' }
+    const google = !activating && isGoogleLoginWord(name)
+    const found = { username: name ? undefined : `กรอก${usernameLabel}`, password: google || password ? undefined : `กรอก${passwordLabel}` }
     setFieldErrors(found)
     setSubmitError('')
     if (found.username) return usernameRef.current?.focus()
@@ -148,27 +154,35 @@ export function LoginPage() {
   const alert = submitError || googleError
   const waiting = busy || leaving
 
+  const switchMode = () => {
+    if (waiting) return
+    setActivating((current) => !current)
+    setPassword('')
+    setFieldErrors({})
+    setSubmitError('')
+  }
+
   return (
     <LoginShell>
-      <h1 className="login-title">เข้าสู่ระบบ</h1>
-      <p className="login-welcome">ยินดีต้อนรับ ดูกิจกรรมและไฟล์ของชมรมได้ที่นี่</p>
+      <h1 className="login-title">{activating ? 'เปิดใช้งานบัญชี' : 'เข้าสู่ระบบ'}</h1>
+      <p className="login-welcome">{activating ? 'ใช้รหัสผ่านชั่วคราวที่ทีมงานออกให้ แล้วตั้งรหัสผ่านของตัวเองก่อนเริ่มใช้งาน' : 'ยินดีต้อนรับ ดูกิจกรรมและไฟล์ของชมรมได้ที่นี่'}</p>
 
       {/* แสดงเฉพาะเมื่อ server ยืนยันว่าไม่มี session แล้วจริง */}
       {params.get('loggedOut') && !googleError && status === 'anonymous' && <p className="notice">ออกจากระบบแล้ว</p>}
 
       <section className="login-card" aria-labelledby="login-context">
-        <h2 id="login-context">{viaGoogle ? 'สำหรับทีมงาน' : 'สำหรับสมาชิก'}</h2>
+        <h2 id="login-context">{viaGoogle ? 'สำหรับทีมงาน' : activating ? 'สำหรับสมาชิกใหม่' : 'สำหรับสมาชิก'}</h2>
         <form onSubmit={submit} noValidate className="form">
           {alert && (
             <p className="form-alert" role="alert">
               {alert}
             </p>
           )}
-          <Field label="ชื่อผู้ใช้" htmlFor="login-username" error={fieldErrors.username}>
+          <Field label={usernameLabel} htmlFor="login-username" error={fieldErrors.username}>
             <input
               id="login-username"
               className="login-username"
-              placeholder="ชื่อผู้ใช้"
+              placeholder={usernameLabel}
               ref={usernameRef}
               type="text"
               inputMode="text"
@@ -225,8 +239,9 @@ export function LoginPage() {
             </div>
           ) : (
             <PasswordField
+              key={activating ? 'temporary-password' : 'member-password'}
               id="login-password"
-              label="รหัสผ่าน"
+              label={passwordLabel}
               value={password}
               onChange={(value) => {
                 setPassword(value)
@@ -239,11 +254,19 @@ export function LoginPage() {
           )}
 
           <button type="submit" className="button button-primary button-large" aria-disabled={waiting || (viaGoogle ? !googleReady : status === 'loading')}>
-            {waiting ? <LoaderCircle aria-hidden="true" size={18} className="spin" /> : <LogIn aria-hidden="true" size={18} />}
-            {busy ? 'กำลังเข้าสู่ระบบ…' : leaving ? 'กำลังไปที่ Google…' : 'เข้าสู่ระบบ'}
+            {waiting ? <LoaderCircle aria-hidden="true" size={18} className="spin" /> : activating ? <KeyRound aria-hidden="true" size={18} /> : <LogIn aria-hidden="true" size={18} />}
+            {busy ? activating ? 'กำลังตรวจรหัสชั่วคราว…' : 'กำลังเข้าสู่ระบบ…' : leaving ? 'กำลังไปที่ Google…' : activating ? 'เปิดใช้งานบัญชี' : 'เข้าสู่ระบบ'}
           </button>
         </form>
-        {!viaGoogle && <p className="login-forgot">ลืมรหัสผ่าน? ติดต่อทีมงานของชมรมเพื่อตั้งรหัสผ่านใหม่</p>}
+        {!viaGoogle && (
+          <>
+            <button type="button" className="button button-large" onClick={switchMode} disabled={waiting}>
+              {activating ? <ArrowLeft aria-hidden="true" size={18} /> : <KeyRound aria-hidden="true" size={18} />}
+              {activating ? 'กลับไปเข้าสู่ระบบ' : 'เปิดใช้งานบัญชีครั้งแรก'}
+            </button>
+            <p className="login-forgot">{activating ? 'ยังไม่มีรหัสผ่านชั่วคราว? ติดต่อทีมงานของชมรมเพื่อเปิดบัญชี' : 'ลืมรหัสผ่าน? ติดต่อทีมงานของชมรมเพื่อตั้งรหัสผ่านใหม่'}</p>
+          </>
+        )}
       </section>
     </LoginShell>
   )

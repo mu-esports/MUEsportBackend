@@ -2157,7 +2157,7 @@ try {
       const dialog = p.locator('dialog[open]')
       await dialog.locator('#create-name-sheets').waitFor()
       check(`${tag}: “สร้างชุดข้อมูลชมรม”: เสนอชื่อที่แก้ได้ บอกสิ่งที่จะสร้างและข้อมูลเดิม ปฏิทินที่ยังไม่มีสิทธิ์ติ๊กไม่ได้ และยังไม่มีคำสั่งสร้างจนกว่าจะยืนยัน`,
-        (await dialog.locator('#create-name-sheets').inputValue()) === 'MU Esport — ทะเบียนสมาชิก' && (await dialog.locator('#create-name-forms').inputValue()) === 'MU Esport — สมัครสมาชิก' &&
+        (await dialog.locator('#create-name-sheets').inputValue()) === 'MUESPORTS — ทะเบียนสมาชิก' && (await dialog.locator('#create-name-forms').inputValue()) === 'MUESPORTS — สมัครสมาชิก' &&
         (await dialog.locator('[data-create="calendar"] input[type="checkbox"]').isDisabled()) && (await dialog.getByText('สมาชิก 4 คน และกำหนดการ 2 รายการ').isVisible()) &&
         (await dialog.getByText('ระบบจับคู่แถวด้วยคอลัมน์รหัสสมาชิก').isVisible()) && creates.length === 0 && (await noOverflow(p)))
       await shot(p, `live-setup-create-${width}${theme === 'dark' ? '-dark' : ''}`, false)
